@@ -212,6 +212,10 @@ async def mutate(request: Request) -> Response:
             "Mutating pod uid=%s in namespace=%s: %d patch operation(s)",
             uid, namespace, len(patches),
         )
+        logger.debug(
+            "Mutating pod uid=%s in namespace=%s: %d patch operation(s): %s",
+            uid, namespace, len(patches),str(patches),
+        )
         return _json_response(_allow_with_patches(uid, patches))
 
     return _json_response(_allow(uid))

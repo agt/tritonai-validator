@@ -1,0 +1,14 @@
+
+Now, adapt this code to make a Mutating Admission Controller following the same approach.
+
+A new set of Namespace attributes will be introduced, each providing defaults the corresponding validating criteria.
+
+For example, a missing or nonconforming "runAsUser" should be replaced with the single value within "sc.dsmlp.ucsd.edu/default.runAsUser"
+
+First, adjust any Container/initContainer securityContext sections present so that their values meet the criteria.
+
+Next, adjust the Pod-level securityContext so that its values meet the criteria.  If one or more containers is missing a securityContext section, and there is no Pod-level section, create a new one for the Pod.
+
+If the namespace lacks a required default attribute, generate a log message to this effect, but proceed with remediation of other criteria.
+
+Following mutation, the API server will send the resulting pod through the Validating Webhook which will block any deficient pods.
