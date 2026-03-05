@@ -13,7 +13,8 @@ endpoint.  The webhook:
 1. Fetches `sc.dsmlp.ucsd.edu/*` annotations from the Pod's **namespace**.
 2. If **no** annotations are present → **reject** (policy must be explicit).
 3. Parses each annotation into a constraint set and validates the Pod spec.
-4. If **any** constraint fails → **reject** with a descriptive message listing all failures.
+4. Applies **hardcoded security constraints** that are always enforced, regardless of annotations.
+5. If **any** constraint fails → **reject** with a descriptive message listing all failures.
 
 ---
 
@@ -111,6 +112,30 @@ Example — namespace annotation `"rack=b,rack=c"` would:
 | `{rack: a}`                   | Rejected | no token matches                  |
 | `{}` or absent                | Rejected | no token matches                  |
 | any spec with `nodeName` set  | Rejected | `nodeName` bypass is forbidden     |
+
+---
+
+## Hardcoded Security Constraints
+
+The following constraints are **always enforced** on every pod that passes through the
+webhook.  They are not configurable via namespace annotations.
+
+### Container-level (applies to `containers`, `initContainers`, and `ephemeralContainers`)
+
+| Field | Allowed values |
+|---|---|
+| `securityContext.allowPrivilegeEscalation` | absent or `false` |
+| `securityContext.privileged` | absent or `false` |
+| `securityContext.capabilities.add` | absent, empty, or `["NET_BIND_SERVICE"]` only |
+| `securityContext.procMount` | absent, `""`, or `"Default"` |
+
+### Pod-level
+
+| Field | Allowed values |
+|---|---|
+| `securityContext.sysctls` | absent or `[]` |
+
+Any violation is reported as a validation error and the pod is rejected.
 
 ---
 
