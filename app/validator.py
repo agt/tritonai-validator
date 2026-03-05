@@ -11,6 +11,11 @@ sc.dsmlp.ucsd.edu/allowPrivilegeEscalation  →  REQUIRED_SCALAR
 
 sc.dsmlp.ucsd.edu/fsGroup            →  OPTIONAL_SCALAR  (pod-level only in k8s)
 sc.dsmlp.ucsd.edu/supplementalGroups →  OPTIONAL_LIST    (pod-level only in k8s)
+sc.dsmlp.ucsd.edu/nodeLabel          →  NODE_SELECTOR    (see below)
+
+NODE_SELECTOR semantics
+  - pod.spec.nodeName must be absent (bypassing nodeSelector is not permitted).
+  - pod.spec.nodeSelector must contain at least one entry matching ANY annotation token.
 
 REQUIRED_SCALAR semantics
   - If the pod-level securityContext carries the field → it must match.
@@ -80,6 +85,9 @@ class FieldBehavior(Enum):
     OPTIONAL_LIST = auto()
     """Field is an optional list; every element must match (pod-level only)."""
 
+    NODE_SELECTOR = auto()
+    """pod.spec.nodeName must be absent; nodeSelector must match at least one token."""
+
 
 @dataclass
 class FieldSpec:
@@ -119,6 +127,11 @@ _FIELD_SPECS: dict[str, FieldSpec] = {
         display_name="supplementalGroups",
         behavior=FieldBehavior.OPTIONAL_LIST,
         extract=lambda sc: sc.get("supplementalGroups"),
+    ),
+    "nodeLabel": FieldSpec(
+        display_name="nodeLabel",
+        behavior=FieldBehavior.NODE_SELECTOR,
+        extract=lambda sc: None,  # handler reads pod_spec directly
     ),
 }
 
@@ -220,6 +233,37 @@ def _validate_optional_list(
     return errors
 
 
+def _validate_node_selector(
+    field_name: str,
+    spec: FieldSpec,
+    pod_spec: dict[str, Any],
+    constraint_set: ConstraintSet,
+) -> list[str]:
+    """Validate NODE_SELECTOR behavior for sc.dsmlp.ucsd.edu/nodeLabel.
+
+    Rules:
+    1. pod.spec.nodeName must be absent — direct node binding bypasses nodeSelector.
+    2. pod.spec.nodeSelector must contain at least one entry matching any constraint token.
+    """
+    errors: list[str] = []
+
+    node_name = pod_spec.get("nodeName")
+    if node_name:
+        errors.append(
+            f"Pod must not set nodeName when sc.dsmlp.ucsd.edu/nodeLabel is "
+            f"enforced by the namespace; found nodeName={node_name!r}"
+        )
+
+    node_selector: dict[str, str] = pod_spec.get("nodeSelector") or {}
+    if not constraint_set.matches(node_selector):
+        errors.append(
+            f"Pod nodeSelector {node_selector!r} does not satisfy "
+            f"nodeLabel constraint [{constraint_set.description()}]"
+        )
+
+    return errors
+
+
 _BEHAVIOR_HANDLERS: dict[
     FieldBehavior,
     Callable[[str, FieldSpec, dict[str, Any], ConstraintSet], list[str]],
@@ -227,6 +271,7 @@ _BEHAVIOR_HANDLERS: dict[
     FieldBehavior.REQUIRED_SCALAR: _validate_required_scalar,
     FieldBehavior.OPTIONAL_SCALAR: _validate_optional_scalar,
     FieldBehavior.OPTIONAL_LIST: _validate_optional_list,
+    FieldBehavior.NODE_SELECTOR: _validate_node_selector,
 }
 
 

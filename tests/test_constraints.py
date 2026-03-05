@@ -2,6 +2,7 @@
 import pytest
 
 from app.constraints.boolean import BooleanConstraintParser
+from app.constraints.nodelabel import NodeLabelConstraintParser
 from app.constraints.numeric import NumericConstraintParser
 
 
@@ -117,3 +118,52 @@ class TestBooleanConstraintParser:
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             self.parser.parse("yes")
+
+
+class TestNodeLabelConstraintParser:
+    parser = NodeLabelConstraintParser()
+
+    def test_single_token_match(self):
+        cs = self.parser.parse("partition=a")
+        assert cs.matches({"partition": "a"}) is True
+
+    def test_single_token_no_match_wrong_value(self):
+        cs = self.parser.parse("partition=a")
+        assert cs.matches({"partition": "b"}) is False
+
+    def test_single_token_no_match_missing_key(self):
+        cs = self.parser.parse("partition=a")
+        assert cs.matches({"rack": "a"}) is False
+
+    def test_multi_token_or_semantics(self):
+        cs = self.parser.parse("rack=b,rack=c")
+        assert cs.matches({"rack": "b"}) is True
+        assert cs.matches({"rack": "c"}) is True
+        assert cs.matches({"rack": "a"}) is False
+
+    def test_extra_nodeselctor_entries_allowed(self):
+        """Pod may have additional nodeSelector entries beyond the constraint."""
+        cs = self.parser.parse("partition=a")
+        assert cs.matches({"partition": "a", "zone": "us-west-2"}) is True
+
+    def test_empty_nodeselector_does_not_match(self):
+        cs = self.parser.parse("partition=a")
+        assert cs.matches({}) is False
+
+    def test_non_dict_does_not_match(self):
+        cs = self.parser.parse("partition=a")
+        assert cs.matches(None) is False
+        assert cs.matches("partition=a") is False
+
+    def test_empty_annotation_raises(self):
+        with pytest.raises(ValueError):
+            self.parser.parse("")
+
+    def test_missing_equals_raises(self):
+        with pytest.raises(ValueError):
+            self.parser.parse("partitiona")
+
+    def test_value_with_equals_sign(self):
+        """Values containing '=' should parse correctly (split on first '=' only)."""
+        cs = self.parser.parse("label=val=ue")
+        assert cs.matches({"label": "val=ue"}) is True

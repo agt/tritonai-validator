@@ -330,3 +330,99 @@ class TestEdgeCases:
         result = validate_pod(annotations, spec)
         assert result.allowed is False
         assert "c2" in result.message
+
+
+# ---------------------------------------------------------------------------
+# nodeLabel — NODE_SELECTOR
+# ---------------------------------------------------------------------------
+
+
+class TestNodeLabel:
+    ANNOTATIONS = {"sc.dsmlp.ucsd.edu/nodeLabel": "partition=a"}
+    MULTI_ANNOTATIONS = {"sc.dsmlp.ucsd.edu/nodeLabel": "rack=b,rack=c"}
+
+    def test_matching_nodeselector_allowed(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"partition": "a"}
+        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+
+    def test_extra_nodeselector_entries_allowed(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"partition": "a", "zone": "us-west-2"}
+        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+
+    def test_wrong_nodeselector_value_rejected(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"partition": "b"}
+        result = validate_pod(self.ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "nodeSelector" in result.message
+
+    def test_missing_nodeselector_rejected(self):
+        spec = _pod()
+        result = validate_pod(self.ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "nodeSelector" in result.message
+
+    def test_empty_nodeselector_rejected(self):
+        spec = _pod()
+        spec["nodeSelector"] = {}
+        result = validate_pod(self.ANNOTATIONS, spec)
+        assert result.allowed is False
+
+    def test_multi_token_first_value_matches(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"rack": "b"}
+        assert validate_pod(self.MULTI_ANNOTATIONS, spec).allowed is True
+
+    def test_multi_token_second_value_matches(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"rack": "c"}
+        assert validate_pod(self.MULTI_ANNOTATIONS, spec).allowed is True
+
+    def test_multi_token_no_match_rejected(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"rack": "a"}
+        result = validate_pod(self.MULTI_ANNOTATIONS, spec)
+        assert result.allowed is False
+
+    def test_nodename_rejected_when_nodelabel_enforced(self):
+        spec = _pod()
+        spec["nodeName"] = "node-42"
+        spec["nodeSelector"] = {"partition": "a"}
+        result = validate_pod(self.ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "nodeName" in result.message
+
+    def test_nodename_absent_allowed(self):
+        spec = _pod()
+        spec["nodeSelector"] = {"partition": "a"}
+        # nodeName not set at all
+        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+
+    def test_nodename_and_bad_nodeselector_both_reported(self):
+        """Both nodeName violation and nodeSelector mismatch should be reported."""
+        spec = _pod()
+        spec["nodeName"] = "node-42"
+        spec["nodeSelector"] = {"rack": "wrong"}
+        result = validate_pod(self.ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "nodeName" in result.message
+        assert "nodeSelector" in result.message
+
+    def test_nodelabel_combined_with_other_constraints(self):
+        annotations = {
+            "sc.dsmlp.ucsd.edu/runAsUser": "1000",
+            "sc.dsmlp.ucsd.edu/nodeLabel": "partition=gpu",
+        }
+        spec = _pod(containers=[_container(sc={"runAsUser": 1000})])
+        spec["nodeSelector"] = {"partition": "gpu"}
+        assert validate_pod(annotations, spec).allowed is True
+
+    def test_nodelabel_malformed_annotation_rejected(self):
+        annotations = {"sc.dsmlp.ucsd.edu/nodeLabel": "no-equals-sign"}
+        spec = _pod()
+        spec["nodeSelector"] = {"partition": "a"}
+        result = validate_pod(annotations, spec)
+        assert result.allowed is False
+        assert "malformed" in result.message.lower()

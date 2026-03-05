@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from .base import ConstraintParser, ConstraintSet
 from .boolean import BooleanConstraintParser
+from .nodelabel import NodeLabelConstraintParser
 from .numeric import NumericConstraintParser
 
 # ---------------------------------------------------------------------------
@@ -21,6 +22,7 @@ CONSTRAINT_REGISTRY: dict[str, ConstraintParser] = {
     "sc.dsmlp.ucsd.edu/fsGroup": NumericConstraintParser(),
     "sc.dsmlp.ucsd.edu/supplementalGroups": NumericConstraintParser(),
     "sc.dsmlp.ucsd.edu/allowPrivilegeEscalation": BooleanConstraintParser(),
+    "sc.dsmlp.ucsd.edu/nodeLabel": NodeLabelConstraintParser(),
 }
 
 
