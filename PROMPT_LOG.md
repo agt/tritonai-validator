@@ -99,3 +99,24 @@ Similarly, if a provided default value does not meet the validation criteria, ge
 
 Following mutation, the API server will send the resulting pod through the Validating Webhook which will block any deficient pods.
 
+# Back out allowPrivilegeEscalation
+
+remove support for  "allowPrivilegeEscalation" constraints - we will address it in a future update.
+
+# Also check ephemeralContainers
+
+Update checks to include a pod's ephemeralContainers in addition to initContainers and Containers.
+
+# Prohibit privilege escalation
+
+This change will pertain only to the validator portion.
+
+For all Containers, initContainers, and ephemeralContainers, ensure that:
+* securityContext.allowPrivilegeEscalation is missing or False
+* securityContext.privileged is missing or False
+* securityContext.capabilities.add is missing, empty, or contains only NET_BIND_SERVICE
+* securityContext.procMount is missing, empty, or set to Default
+
+For the Pod-level securityContext, ensure that:
+* securityContext.sysctls is missing, or an empty list
+	
