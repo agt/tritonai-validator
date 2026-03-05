@@ -1,0 +1,152 @@
+---
+# Namespace for all webhook resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tritonai-system
+
+---
+# TLS certificate for the webhook server.
+# Replace the Secret data with actual base64-encoded TLS material, or use
+# cert-manager to generate and rotate it automatically (see notes below).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pod-security-webhook-tls
+  namespace: tritonai-system
+type: kubernetes.io/tls
+data:
+  # Replace with: base64 -w0 tls.crt
+  tls.crt: <BASE64_ENCODED_TLS_CRT>
+  # Replace with: base64 -w0 tls.key
+  tls.key: <BASE64_ENCODED_TLS_KEY>
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-security-webhook
+  namespace: tritonai-system
+  labels:
+    app: pod-security-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pod-security-webhook
+  template:
+    metadata:
+      labels:
+        app: pod-security-webhook
+    spec:
+      serviceAccountName: pod-security-webhook
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: webhook
+          # Replace with your actual image reference after pushing to a registry
+          image: tritonai/pod-security-webhook:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8443
+              name: https
+          env:
+            - name: LOG_LEVEL
+              value: "INFO"
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: tls
+          secret:
+            secretName: pod-security-webhook-tls
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-security-webhook
+  namespace: tritonai-system
+spec:
+  selector:
+    app: pod-security-webhook
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+
+---
+# ValidatingWebhookConfiguration — the API server will call this webhook for
+# every Pod CREATE/UPDATE operation across all namespaces.
+#
+# caBundle: must contain the CA certificate (base64-encoded) that signed the
+# webhook's TLS certificate. If using cert-manager with the CA injector, set
+# this to "" and add the cert-manager.io/inject-ca-from annotation.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pod-security-webhook
+  # Uncomment if using cert-manager CA injector:
+  # annotations:
+  #   cert-manager.io/inject-ca-from: tritonai-system/pod-security-webhook-cert
+spec:
+  webhooks:
+    - name: pod-security.tritonai.io
+      admissionReviewVersions: ["v1"]
+      sideEffects: None
+      failurePolicy: Fail       # Reject pods if the webhook is unavailable
+      timeoutSeconds: 10
+      clientConfig:
+        service:
+          name: pod-security-webhook
+          namespace: tritonai-system
+          path: /validate
+          port: 443
+        # Replace with base64-encoded CA certificate that signed the TLS cert.
+        # Generate with: base64 -w0 ca.crt
+        caBundle: <BASE64_ENCODED_CA_CRT>
+      rules:
+        - apiGroups: [""]
+          apiVersions: ["v1"]
+          operations: ["CREATE", "UPDATE"]
+          resources: ["pods"]
+          scope: "Namespaced"
+      # Exclude the webhook's own namespace to prevent deadlocks
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              - tritonai-system
+              - kube-system
