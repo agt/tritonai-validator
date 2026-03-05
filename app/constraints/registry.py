@@ -16,11 +16,11 @@ from .numeric import NumericConstraintParser
 # Registry: annotation key → parser instance
 # ---------------------------------------------------------------------------
 CONSTRAINT_REGISTRY: dict[str, ConstraintParser] = {
-    "securityContext/runAsUser": NumericConstraintParser(),
-    "securityContext/runAsGroup": NumericConstraintParser(),
-    "securityContext/fsGroup": NumericConstraintParser(),
-    "securityContext/supplementalGroups": NumericConstraintParser(),
-    "securityContext/allowPrivilegeEscalation": BooleanConstraintParser(),
+    "sc.dsmlp.ucsd.edu/runAsUser": NumericConstraintParser(),
+    "sc.dsmlp.ucsd.edu/runAsGroup": NumericConstraintParser(),
+    "sc.dsmlp.ucsd.edu/fsGroup": NumericConstraintParser(),
+    "sc.dsmlp.ucsd.edu/supplementalGroups": NumericConstraintParser(),
+    "sc.dsmlp.ucsd.edu/allowPrivilegeEscalation": BooleanConstraintParser(),
 }
 
 

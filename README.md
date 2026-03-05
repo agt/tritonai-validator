@@ -10,7 +10,7 @@ Pod security requirements via namespace annotations.
 When a Pod is submitted to Kubernetes, the API server calls this webhook's `/validate`
 endpoint.  The webhook:
 
-1. Fetches `securityContext/*` annotations from the Pod's **namespace**.
+1. Fetches `sc.dsmlp.ucsd.edu/*` annotations from the Pod's **namespace**.
 2. If **no** annotations are present → **reject** (policy must be explicit).
 3. Parses each annotation into a constraint set and validates the Pod spec.
 4. If **any** constraint fails → **reject** with a descriptive message listing all failures.
@@ -19,7 +19,7 @@ endpoint.  The webhook:
 
 ## Namespace Annotations
 
-Set security policy on a namespace by adding annotations prefixed `securityContext/`.
+Set security policy on a namespace by adding annotations prefixed `sc.dsmlp.ucsd.edu/`.
 
 ```yaml
 apiVersion: v1
@@ -27,11 +27,11 @@ kind: Namespace
 metadata:
   name: my-app
   annotations:
-    securityContext/runAsUser: "1000,2000-3000,>5000000"
-    securityContext/runAsGroup: "1000"
-    securityContext/fsGroup: "1000"
-    securityContext/supplementalGroups: "1000,2000-3000"
-    securityContext/allowPrivilegeEscalation: "false"
+    sc.dsmlp.ucsd.edu/runAsUser: "1000,2000-3000,>5000000"
+    sc.dsmlp.ucsd.edu/runAsGroup: "1000"
+    sc.dsmlp.ucsd.edu/fsGroup: "1000"
+    sc.dsmlp.ucsd.edu/supplementalGroups: "1000,2000-3000"
+    sc.dsmlp.ucsd.edu/allowPrivilegeEscalation: "false"
 ```
 
 ### Constraint Value Syntax
@@ -52,7 +52,7 @@ Comma-separated tokens, matched with **OR** semantics (any one token matching is
 
 ## Validation Behavior per Annotation
 
-### `securityContext/runAsUser`, `securityContext/runAsGroup`, `securityContext/allowPrivilegeEscalation`
+### `sc.dsmlp.ucsd.edu/runAsUser`, `sc.dsmlp.ucsd.edu/runAsGroup`, `sc.dsmlp.ucsd.edu/allowPrivilegeEscalation`
 
 **Required field** — enforcement is strict:
 
@@ -61,14 +61,14 @@ Comma-separated tokens, matched with **OR** semantics (any one token matching is
 - If the Pod-level `securityContext` is **absent** (or does not set the field), **every**
   container and initContainer must supply the field and it must match.
 
-### `securityContext/fsGroup`
+### `sc.dsmlp.ucsd.edu/fsGroup`
 
 **Optional field** — only pod-level:
 
 - Absent from pod `securityContext` → constraint satisfied (no requirement to set it).
 - Present → must match the annotation constraint.
 
-### `securityContext/supplementalGroups`
+### `sc.dsmlp.ucsd.edu/supplementalGroups`
 
 **Optional list** — only pod-level:
 

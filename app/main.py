@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="TritonAI Pod Security Admission Webhook",
     description=(
-        "Validates Pod admission against per-namespace securityContext/* annotations."
+        "Validates Pod admission against per-namespace sc.dsmlp.ucsd.edu/* annotations."
     ),
     version="1.0.0",
 )

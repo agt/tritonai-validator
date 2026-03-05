@@ -16,7 +16,7 @@ from kubernetes.client.exceptions import ApiException  # type: ignore[import-unt
 logger = logging.getLogger(__name__)
 
 # Annotation prefix used by this webhook
-ANNOTATION_PREFIX = "securityContext/"
+ANNOTATION_PREFIX = "sc.dsmlp.ucsd.edu/"
 
 
 def _load_k8s_config() -> None:
@@ -36,14 +36,14 @@ def _get_core_v1_api() -> client.CoreV1Api:
 
 
 def get_namespace_security_annotations(namespace: str) -> dict[str, str]:
-    """Return a dict of ``securityContext/*`` annotations from *namespace*.
+    """Return a dict of ``sc.dsmlp.ucsd.edu/*`` annotations from *namespace*.
 
     Returns an empty dict if the namespace has no relevant annotations or
     cannot be retrieved (errors are logged but not re-raised so the webhook
     can return a clear rejection message rather than a 500).
 
     The returned keys are full annotation strings, e.g.:
-        {"securityContext/runAsUser": "1000,2000-3000"}
+        {"sc.dsmlp.ucsd.edu/runAsUser": "1000,2000-3000"}
     """
     try:
         api = _get_core_v1_api()

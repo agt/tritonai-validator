@@ -5,12 +5,12 @@ Applies per-namespace security constraints to an incoming Pod spec.
 
 Validation rules per annotation
 ────────────────────────────────
-securityContext/runAsUser          →  REQUIRED_SCALAR  (see below)
-securityContext/runAsGroup         →  REQUIRED_SCALAR
-securityContext/allowPrivilegeEscalation  →  REQUIRED_SCALAR
+sc.dsmlp.ucsd.edu/runAsUser          →  REQUIRED_SCALAR  (see below)
+sc.dsmlp.ucsd.edu/runAsGroup         →  REQUIRED_SCALAR
+sc.dsmlp.ucsd.edu/allowPrivilegeEscalation  →  REQUIRED_SCALAR
 
-securityContext/fsGroup            →  OPTIONAL_SCALAR  (pod-level only in k8s)
-securityContext/supplementalGroups →  OPTIONAL_LIST    (pod-level only in k8s)
+sc.dsmlp.ucsd.edu/fsGroup            →  OPTIONAL_SCALAR  (pod-level only in k8s)
+sc.dsmlp.ucsd.edu/supplementalGroups →  OPTIONAL_LIST    (pod-level only in k8s)
 
 REQUIRED_SCALAR semantics
   - If the pod-level securityContext carries the field → it must match.
@@ -93,7 +93,7 @@ class FieldSpec:
     extract: Callable[[dict[str, Any]], Any]
 
 
-# Maps annotation key suffix (after "securityContext/") to its FieldSpec
+# Maps annotation key suffix (after "sc.dsmlp.ucsd.edu/") to its FieldSpec
 _FIELD_SPECS: dict[str, FieldSpec] = {
     "runAsUser": FieldSpec(
         display_name="runAsUser",
@@ -254,8 +254,8 @@ def validate_pod(
     Parameters
     ----------
     namespace_annotations:
-        The ``securityContext/*`` annotations scraped from the pod's namespace.
-        Keys are full annotation strings (e.g. ``"securityContext/runAsUser"``).
+        The ``sc.dsmlp.ucsd.edu/*`` annotations scraped from the pod's namespace.
+        Keys are full annotation strings (e.g. ``"sc.dsmlp.ucsd.edu/runAsUser"``).
     pod_spec:
         The ``spec`` sub-dict from the Pod's ``object`` in the AdmissionRequest.
 
@@ -288,7 +288,7 @@ def validate_pod(
         return ValidationResult(
             allowed=False,
             errors=[
-                "Pod rejected: the namespace has no securityContext/* annotations; "
+                "Pod rejected: the namespace has no sc.dsmlp.ucsd.edu/* annotations; "
                 "security policy must be explicitly defined."
             ],
         )

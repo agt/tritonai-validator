@@ -38,7 +38,7 @@ def _container(name: str = "app", sc: dict | None = None) -> dict:
 def test_no_annotations_rejects():
     result = validate_pod({}, _pod())
     assert result.allowed is False
-    assert "no securityContext" in result.message.lower() or "no security" in result.message.lower()
+    assert "sc.dsmlp.ucsd.edu" in result.message
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ def test_no_annotations_rejects():
 
 
 class TestRunAsUser:
-    ANNOTATIONS = {"securityContext/runAsUser": "1000"}
+    ANNOTATIONS = {"sc.dsmlp.ucsd.edu/runAsUser": "1000"}
 
     def test_pod_level_match(self):
         spec = _pod(pod_sc={"runAsUser": 1000}, containers=[_container()])
@@ -109,22 +109,22 @@ class TestRunAsUser:
         assert "init" in result.message
 
     def test_range_constraint(self):
-        annotations = {"securityContext/runAsUser": "1000,2000-3000"}
+        annotations = {"sc.dsmlp.ucsd.edu/runAsUser": "1000,2000-3000"}
         spec = _pod(containers=[_container(sc={"runAsUser": 2500})])
         assert validate_pod(annotations, spec).allowed is True
 
     def test_range_constraint_fail(self):
-        annotations = {"securityContext/runAsUser": "1000,2000-3000"}
+        annotations = {"sc.dsmlp.ucsd.edu/runAsUser": "1000,2000-3000"}
         spec = _pod(containers=[_container(sc={"runAsUser": 1500})])
         assert validate_pod(annotations, spec).allowed is False
 
     def test_greater_than_constraint(self):
-        annotations = {"securityContext/runAsUser": ">5000000"}
+        annotations = {"sc.dsmlp.ucsd.edu/runAsUser": ">5000000"}
         spec = _pod(containers=[_container(sc={"runAsUser": 5000001})])
         assert validate_pod(annotations, spec).allowed is True
 
     def test_greater_than_boundary_fail(self):
-        annotations = {"securityContext/runAsUser": ">5000000"}
+        annotations = {"sc.dsmlp.ucsd.edu/runAsUser": ">5000000"}
         spec = _pod(containers=[_container(sc={"runAsUser": 5000000})])
         assert validate_pod(annotations, spec).allowed is False
 
@@ -135,7 +135,7 @@ class TestRunAsUser:
 
 
 class TestRunAsGroup:
-    ANNOTATIONS = {"securityContext/runAsGroup": "2000"}
+    ANNOTATIONS = {"sc.dsmlp.ucsd.edu/runAsGroup": "2000"}
 
     def test_pod_level_match(self):
         spec = _pod(pod_sc={"runAsGroup": 2000})
@@ -156,8 +156,8 @@ class TestRunAsGroup:
 
 
 class TestAllowPrivilegeEscalation:
-    ANNOTATIONS_FALSE = {"securityContext/allowPrivilegeEscalation": "false"}
-    ANNOTATIONS_TRUE = {"securityContext/allowPrivilegeEscalation": "true"}
+    ANNOTATIONS_FALSE = {"sc.dsmlp.ucsd.edu/allowPrivilegeEscalation": "false"}
+    ANNOTATIONS_TRUE = {"sc.dsmlp.ucsd.edu/allowPrivilegeEscalation": "true"}
 
     def test_pod_sc_false_matches_false_annotation(self):
         spec = _pod(pod_sc={"allowPrivilegeEscalation": False})
@@ -189,7 +189,7 @@ class TestAllowPrivilegeEscalation:
 
 
 class TestFsGroup:
-    ANNOTATIONS = {"securityContext/fsGroup": "1000"}
+    ANNOTATIONS = {"sc.dsmlp.ucsd.edu/fsGroup": "1000"}
 
     def test_absent_is_ok(self):
         spec = _pod(pod_sc={})
@@ -216,7 +216,7 @@ class TestFsGroup:
 
 
 class TestSupplementalGroups:
-    ANNOTATIONS = {"securityContext/supplementalGroups": "1000,2000-3000"}
+    ANNOTATIONS = {"sc.dsmlp.ucsd.edu/supplementalGroups": "1000,2000-3000"}
 
     def test_absent_is_ok(self):
         spec = _pod(pod_sc={})
@@ -244,10 +244,10 @@ class TestSupplementalGroups:
 
 class TestMultipleConstraints:
     ANNOTATIONS = {
-        "securityContext/runAsUser": "1000",
-        "securityContext/runAsGroup": "2000",
-        "securityContext/allowPrivilegeEscalation": "false",
-        "securityContext/fsGroup": "3000",
+        "sc.dsmlp.ucsd.edu/runAsUser": "1000",
+        "sc.dsmlp.ucsd.edu/runAsGroup": "2000",
+        "sc.dsmlp.ucsd.edu/allowPrivilegeEscalation": "false",
+        "sc.dsmlp.ucsd.edu/fsGroup": "3000",
     }
 
     def test_all_pass(self):
@@ -303,7 +303,7 @@ class TestMultipleConstraints:
 
 class TestEdgeCases:
     def test_malformed_annotation_rejects(self):
-        annotations = {"securityContext/runAsUser": "foo,bar"}
+        annotations = {"sc.dsmlp.ucsd.edu/runAsUser": "foo,bar"}
         spec = _pod(pod_sc={"runAsUser": 1000})
         result = validate_pod(annotations, spec)
         assert result.allowed is False
@@ -312,15 +312,15 @@ class TestEdgeCases:
     def test_unknown_annotation_key_ignored(self):
         """Unknown annotation keys (not in CONSTRAINT_REGISTRY) are silently ignored."""
         annotations = {
-            "securityContext/runAsUser": "1000",
-            "securityContext/unknownFutureFiled": "xyz",
+            "sc.dsmlp.ucsd.edu/runAsUser": "1000",
+            "sc.dsmlp.ucsd.edu/unknownFutureFiled": "xyz",
         }
         spec = _pod(containers=[_container(sc={"runAsUser": 1000})])
         # Should pass based on the known constraint; the unknown key is ignored
         assert validate_pod(annotations, spec).allowed is True
 
     def test_multiple_containers_all_must_pass(self):
-        annotations = {"securityContext/runAsUser": "1000"}
+        annotations = {"sc.dsmlp.ucsd.edu/runAsUser": "1000"}
         spec = _pod(
             containers=[
                 _container("c1", sc={"runAsUser": 1000}),
