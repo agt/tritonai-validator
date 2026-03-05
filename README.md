@@ -32,21 +32,38 @@ metadata:
     sc.dsmlp.ucsd.edu/fsGroup: "1000"
     sc.dsmlp.ucsd.edu/supplementalGroups: "1000,2000-3000"
     sc.dsmlp.ucsd.edu/allowPrivilegeEscalation: "false"
+    sc.dsmlp.ucsd.edu/nodeLabel: "partition=gpu,partition=cpu"
 ```
 
 ### Constraint Value Syntax
 
+#### Numeric and boolean annotations
+
 Comma-separated tokens, matched with **OR** semantics (any one token matching is sufficient):
 
-| Token format | Example      | Meaning                    |
-|-------------|--------------|----------------------------|
-| Exact        | `1000`       | value == 1000              |
-| Closed range | `2000-3000`  | 2000 ≤ value ≤ 3000        |
-| Greater than | `>5000000`   | value > 5,000,000          |
-| Less than    | `<500`       | value < 500                |
-| ≥            | `>=1000`     | value ≥ 1000               |
-| ≤            | `<=1000`     | value ≤ 1000               |
-| Boolean      | `true`/`false` | exact boolean match      |
+| Token format | Example        | Meaning               |
+|-------------|----------------|-----------------------|
+| Exact        | `1000`         | value == 1000         |
+| Closed range | `2000-3000`    | 2000 ≤ value ≤ 3000   |
+| Greater than | `>5000000`     | value > 5,000,000     |
+| Less than    | `<500`         | value < 500           |
+| ≥            | `>=1000`       | value ≥ 1000          |
+| ≤            | `<=1000`       | value ≤ 1000          |
+| Boolean      | `true`/`false` | exact boolean match   |
+
+#### `sc.dsmlp.ucsd.edu/nodeLabel`
+
+Comma-separated `key=value` pairs, matched with **OR** semantics:
+
+| Token format | Example         | Meaning                                   |
+|-------------|-----------------|-------------------------------------------|
+| Key=value   | `partition=gpu` | nodeSelector must contain `partition: gpu` |
+
+Multiple tokens mean the pod may land on a node matching **any** of them:
+
+```
+sc.dsmlp.ucsd.edu/nodeLabel: "rack=b,rack=c"
+```
 
 ---
 
@@ -74,6 +91,26 @@ Comma-separated tokens, matched with **OR** semantics (any one token matching is
 
 - Absent or empty → constraint satisfied.
 - Present → **every element** must satisfy at least one constraint token.
+
+### `sc.dsmlp.ucsd.edu/nodeLabel`
+
+**Node placement** — two rules are enforced simultaneously:
+
+- `pod.spec.nodeName` must be **absent**.  Setting `nodeName` bypasses the scheduler and
+  the `nodeSelector` check entirely, so it is never permitted when this annotation is present.
+- `pod.spec.nodeSelector` must contain at least one entry matching **any** of the
+  annotation's `key=value` tokens.  Additional `nodeSelector` entries beyond the matched
+  one are permitted.
+
+Example — namespace annotation `"rack=b,rack=c"` would:
+
+| Pod nodeSelector              | Result  | Reason                             |
+|-------------------------------|---------|------------------------------------|
+| `{rack: b}`                   | Allowed | matches `rack=b`                   |
+| `{rack: c, zone: us-west-2}`  | Allowed | matches `rack=c`; extra key is OK  |
+| `{rack: a}`                   | Rejected | no token matches                  |
+| `{}` or absent                | Rejected | no token matches                  |
+| any spec with `nodeName` set  | Rejected | `nodeName` bypass is forbidden     |
 
 ---
 
