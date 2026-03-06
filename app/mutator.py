@@ -163,8 +163,9 @@ def _mutate_node_selector(
     """Mutate pod scheduling fields when sc.dsmlp.ucsd.edu/nodeLabel is active.
 
     • nodeName is always removed — it unconditionally bypasses nodeSelector.
-    • If nodeSelector does not already contain the key from the default label,
-      that key=value pair is injected.  An existing key is never overwritten.
+    • The default key=value label is injected only when nodeSelector is completely
+      absent.  If the pod already specifies any nodeSelector entries, it is left
+      untouched.
     """
     if pod.get("nodeName"):
         del pod["nodeName"]
@@ -173,26 +174,16 @@ def _mutate_node_selector(
     if default_label is None:
         return
 
+    if pod.get("nodeSelector"):
+        return  # pod already specifies a nodeSelector; leave it alone
+
     key, value = default_label
-    node_selector: dict[str, str] = pod.get("nodeSelector") or {}
-
-    if key in node_selector:
-        return  # key already present; leave it alone
-
-    if "nodeSelector" not in pod:
-        pod["nodeSelector"] = {key: value}
-        patches.append({
-            "op": "add",
-            "path": "/spec/nodeSelector",
-            "value": {key: value},
-        })
-    else:
-        pod["nodeSelector"][key] = value
-        patches.append({
-            "op": "add",     # "add" creates-or-replaces in a JSON object
-            "path": _ptr("spec", "nodeSelector", key),
-            "value": value,
-        })
+    pod["nodeSelector"] = {key: value}
+    patches.append({
+        "op": "add",
+        "path": "/spec/nodeSelector",
+        "value": {key: value},
+    })
 
 
 # Dispatch table: FieldBehavior → mutator function (excludes NODE_SELECTOR)

@@ -276,13 +276,11 @@ class TestMutateNodeLabel:
         assert p["op"] == "add"
         assert p["value"] == {"partition": "gpu"}
 
-    def test_adds_key_to_existing_nodeselector(self):
+    def test_no_injection_into_existing_nodeselector(self):
+        # Pod already has a nodeSelector with a different key — not touched.
         spec = _pod()
         spec["nodeSelector"] = {"zone": "us-west-2"}
-        patches = mutate_pod(NL_ANNOTATIONS, spec)
-        p = _patch_at(patches, "/spec/nodeSelector/partition")
-        assert p is not None
-        assert p["value"] == "gpu"
+        assert mutate_pod(NL_ANNOTATIONS, spec) == []
 
     def test_removes_nodename_unconditionally(self):
         spec = _pod()
@@ -313,23 +311,21 @@ class TestMutateNodeLabel:
             "sc.dsmlp.ucsd.edu/nodeLabel": "kubernetes.io/hostname=node-1",
             "sc.dsmlp.ucsd.edu/default.nodeLabel": "kubernetes.io/hostname=node-1",
         }
+        # nodeSelector absent → default injected; verify pointer escaping
         spec = _pod()
-        spec["nodeSelector"] = {"zone": "us"}
         patches = mutate_pod(annotations, spec)
-        p = next(p for p in patches if "hostname" in p["path"])
-        assert "kubernetes.io~1hostname" in p["path"]
+        assert len(patches) == 1
+        assert "kubernetes.io~1hostname" in patches[0]["path"] or patches[0]["value"] == {"kubernetes.io/hostname": "node-1"}
 
-    def test_key_absent_from_nodeselector_triggers_injection(self):
-        # A multi-token constraint annotation; what matters is the default key is absent.
+    def test_existing_nodeselector_suppresses_injection(self):
+        # Any pre-existing nodeSelector (even with unrelated keys) prevents injection.
         annotations = {
             "sc.dsmlp.ucsd.edu/nodeLabel": "rack=a,rack=b",
             "sc.dsmlp.ucsd.edu/default.nodeLabel": "rack=a",
         }
         spec = _pod()
-        # nodeSelector has an unrelated key → rack key is absent → inject
         spec["nodeSelector"] = {"zone": "us-west-2"}
-        patches = mutate_pod(annotations, spec)
-        assert any("rack" in p["path"] for p in patches)
+        assert mutate_pod(annotations, spec) == []
 
 
 # ---------------------------------------------------------------------------
