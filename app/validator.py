@@ -292,13 +292,15 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
 
     Pod-level:
       - securityContext.sysctls must be absent or empty.
-      - Each volume must use one of the permitted types.
 
     Per container (containers, initContainers, ephemeralContainers):
       - securityContext.allowPrivilegeEscalation must be absent or false.
       - securityContext.privileged must be absent or false.
       - securityContext.capabilities.add must be absent, empty, or contain only NET_BIND_SERVICE.
       - securityContext.procMount must be absent, empty string, or "Default".
+
+    Volume type checking is handled separately by _validate_volume_types(), which also
+    applies the sc.dsmlp.ucsd.edu/prohibitedVolumeTypes namespace annotation.
     """
     errors: list[str] = []
 
@@ -309,16 +311,6 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
         errors.append(
             f"Pod securityContext.sysctls must be absent or empty; found {sysctls!r}"
         )
-
-    # Pod-level: volume types
-    for volume in pod_spec.get("volumes") or []:
-        vol_name = volume.get("name", "<unnamed>")
-        disallowed_types = [k for k in volume if k != "name" and k not in _ALLOWED_VOLUME_TYPES]
-        for vol_type in disallowed_types:
-            errors.append(
-                f"Volume {vol_name!r} uses disallowed type {vol_type!r}; "
-                f"permitted types: {sorted(_ALLOWED_VOLUME_TYPES)}"
-            )
 
     # Container-level checks
     for container in _all_containers(pod_spec):
@@ -352,6 +344,54 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
             errors.append(
                 f"Container {cname!r} securityContext.procMount must be absent or 'Default'; "
                 f"found {proc_mount!r}"
+            )
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Volume type constraint (hardcoded base set + optional namespace restriction)
+# ---------------------------------------------------------------------------
+
+_PROHIBITED_VOLUME_TYPES_KEY = "sc.dsmlp.ucsd.edu/prohibitedVolumeTypes"
+
+
+def _validate_volume_types(
+    pod_spec: dict[str, Any],
+    namespace_annotations: dict[str, str],
+) -> list[str]:
+    """Validate that all pod volumes use permitted types.
+
+    The base permitted set is _ALLOWED_VOLUME_TYPES.  The namespace annotation
+    sc.dsmlp.ucsd.edu/prohibitedVolumeTypes may further restrict it by listing
+    comma-separated type names to remove.  A missing or empty annotation means
+    no additional restrictions beyond the base set.
+
+    Type names in the annotation that are not in the base permitted set are
+    ignored (with a warning), since they were never allowed to begin with.
+    """
+    raw = namespace_annotations.get(_PROHIBITED_VOLUME_TYPES_KEY, "")
+    prohibited: frozenset[str] = frozenset()
+    if raw.strip():
+        names = [t.strip() for t in raw.split(",") if t.strip()]
+        unknown = [n for n in names if n not in _ALLOWED_VOLUME_TYPES]
+        for u in unknown:
+            logger.warning(
+                "Annotation %r lists %r which is not in the base permitted volume type set; ignored.",
+                _PROHIBITED_VOLUME_TYPES_KEY, u,
+            )
+        prohibited = frozenset(n for n in names if n in _ALLOWED_VOLUME_TYPES)
+
+    effective_allowed = _ALLOWED_VOLUME_TYPES - prohibited
+
+    errors: list[str] = []
+    for volume in pod_spec.get("volumes") or []:
+        vol_name = volume.get("name", "<unnamed>")
+        disallowed_types = [k for k in volume if k != "name" and k not in effective_allowed]
+        for vol_type in disallowed_types:
+            errors.append(
+                f"Volume {vol_name!r} uses disallowed type {vol_type!r}; "
+                f"permitted types: {sorted(effective_allowed)}"
             )
 
     return errors
@@ -477,6 +517,9 @@ def validate_pod(
 
     # Apply hardcoded constraints (always enforced)
     all_errors.extend(_validate_hardcoded_constraints(pod_spec))
+
+    # Apply volume type constraint (hardcoded base set, optionally narrowed by annotation)
+    all_errors.extend(_validate_volume_types(pod_spec, namespace_annotations))
 
     # Apply NFS volume constraint (annotation-driven, missing annotation = deny all NFS)
     all_errors.extend(_validate_nfs_volumes(pod_spec, namespace_annotations))

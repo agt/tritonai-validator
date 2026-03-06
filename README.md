@@ -60,6 +60,8 @@ metadata:
     sc.dsmlp.ucsd.edu/default.nodeLabel: "partition=gpu"
     # NFS volume allowlist (see below)
     sc.dsmlp.ucsd.edu/allowedNfsVolumes: "10.20.5.3:/export/data,itsnfs:/scratch,its-dsmlp-fs0[1-9]:/export/workspaces/*"
+    # Optionally remove types from the hardcoded permitted volume type set (see below)
+    sc.dsmlp.ucsd.edu/prohibitedVolumeTypes: "emptyDir,secret"
 ```
 
 Default annotations are only consulted by the mutator and must satisfy the corresponding
@@ -161,6 +163,19 @@ sc.dsmlp.ucsd.edu/allowedNfsVolumes: "10.20.5.3:/export/data,itsnfs:/scratch,its
 
 A pod with no NFS volumes is always accepted regardless of this annotation.
 
+### `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`
+
+**Volume type restriction** — removes one or more types from the hardcoded permitted set:
+
+- Value is a comma-separated list of volume type names (e.g. `"emptyDir,secret"`).
+- Each named type is removed from the base permitted set for pods in this namespace.
+- A missing or empty annotation means no additional restrictions.
+- Type names not present in the base permitted set are ignored (logged as a warning).
+
+```
+sc.dsmlp.ucsd.edu/prohibitedVolumeTypes: "emptyDir,hostPath"
+```
+
 ---
 
 ## Hardcoded Security Constraints
@@ -173,7 +188,7 @@ webhook.  They are not configurable via namespace annotations.
 | Field | Allowed values |
 |---|---|
 | `securityContext.sysctls` | absent or `[]` |
-| `volumes[*]` type | `configMap`, `downwardAPI`, `emptyDir`, `image`, `nfs`, `persistentVolumeClaim`, `projected`, `secret`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate` |
+| `volumes[*]` type | `configMap`, `downwardAPI`, `emptyDir`, `image`, `nfs`, `persistentVolumeClaim`, `projected`, `secret`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate` (base set; further restricted by `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`) |
 
 ### Container-level (applies to `containers`, `initContainers`, and `ephemeralContainers`)
 

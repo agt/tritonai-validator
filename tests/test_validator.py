@@ -638,6 +638,123 @@ def _nfs_spec(*nfs_volumes: dict) -> dict:
     )
 
 
+# ---------------------------------------------------------------------------
+# prohibitedVolumeTypes annotation constraint
+# ---------------------------------------------------------------------------
+
+_PVT_ANN = "sc.dsmlp.ucsd.edu/prohibitedVolumeTypes"
+
+
+class TestProhibitedVolumeTypes:
+
+    def _spec(self, *volumes: dict) -> dict:
+        return _pod(containers=[_container(sc={"runAsUser": 1000})], volumes=list(volumes))
+
+    def _anns(self, value: str) -> dict:
+        return {**_ALWAYS_ANNOTATIONS, _PVT_ANN: value}
+
+    # ------------------------------------------------------------------ #
+    # No annotation — base set unchanged
+    # ------------------------------------------------------------------ #
+
+    def test_no_annotation_base_types_permitted(self):
+        for vol_type in _ALLOWED_VOLUME_TYPES:
+            if vol_type == "nfs":
+                continue  # nfs also requires allowedNfsVolumes
+            spec = self._spec({"name": "v", vol_type: {}})
+            result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+            assert result.allowed is True, f"Expected {vol_type!r} allowed without annotation; got: {result.message}"
+
+    # ------------------------------------------------------------------ #
+    # Single-type prohibition
+    # ------------------------------------------------------------------ #
+
+    def test_prohibited_type_rejected(self):
+        spec = self._spec({"name": "tmp", "emptyDir": {}})
+        result = validate_pod(self._anns("emptyDir"), spec)
+        assert result.allowed is False
+        assert "tmp" in result.message
+        assert "emptyDir" in result.message
+
+    def test_prohibited_type_absent_from_pod_ok(self):
+        spec = self._spec({"name": "cfg", "configMap": {"name": "cm"}})
+        assert validate_pod(self._anns("emptyDir"), spec).allowed is True
+
+    def test_prohibit_secret(self):
+        spec = self._spec({"name": "s", "secret": {"secretName": "x"}})
+        result = validate_pod(self._anns("secret"), spec)
+        assert result.allowed is False
+        assert "secret" in result.message
+
+    # ------------------------------------------------------------------ #
+    # Multiple-type prohibition
+    # ------------------------------------------------------------------ #
+
+    def test_prohibit_multiple_types(self):
+        spec = self._spec(
+            {"name": "tmp", "emptyDir": {}},
+            {"name": "s", "secret": {"secretName": "x"}},
+        )
+        result = validate_pod(self._anns("emptyDir,secret"), spec)
+        assert result.allowed is False
+        assert "tmp" in result.message
+        assert "s" in result.message
+
+    def test_prohibit_multiple_only_matching_reported(self):
+        # configMap is not prohibited; emptyDir is
+        spec = self._spec(
+            {"name": "cfg", "configMap": {}},
+            {"name": "tmp", "emptyDir": {}},
+        )
+        result = validate_pod(self._anns("emptyDir,secret"), spec)
+        assert result.allowed is False
+        assert "tmp" in result.message
+        assert "cfg" not in result.message
+
+    # ------------------------------------------------------------------ #
+    # Empty / whitespace annotation — no additional restriction
+    # ------------------------------------------------------------------ #
+
+    def test_empty_annotation_no_restriction(self):
+        spec = self._spec({"name": "tmp", "emptyDir": {}})
+        assert validate_pod(self._anns(""), spec).allowed is True
+
+    def test_whitespace_annotation_no_restriction(self):
+        spec = self._spec({"name": "tmp", "emptyDir": {}})
+        assert validate_pod(self._anns("   "), spec).allowed is True
+
+    # ------------------------------------------------------------------ #
+    # Unknown type names in annotation (not in base set)
+    # ------------------------------------------------------------------ #
+
+    def test_unknown_type_name_ignored(self):
+        # "notARealType" not in base set; emptyDir still prohibited
+        spec = self._spec({"name": "tmp", "emptyDir": {}})
+        result = validate_pod(self._anns("notARealType,emptyDir"), spec)
+        assert result.allowed is False
+        assert "emptyDir" in result.message
+
+    def test_only_unknown_type_no_restriction(self):
+        spec = self._spec({"name": "tmp", "emptyDir": {}})
+        assert validate_pod(self._anns("notARealType"), spec).allowed is True
+
+    # ------------------------------------------------------------------ #
+    # No volumes — always passes
+    # ------------------------------------------------------------------ #
+
+    def test_no_volumes_always_ok(self):
+        spec = _pod(containers=[_container(sc={"runAsUser": 1000})])
+        assert validate_pod(self._anns("emptyDir,secret"), spec).allowed is True
+
+    # ------------------------------------------------------------------ #
+    # Types outside the base set remain rejected regardless
+    # ------------------------------------------------------------------ #
+
+    def test_base_disallowed_type_always_rejected(self):
+        spec = self._spec({"name": "bad", "hostPath": {"path": "/host"}})
+        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is False
+
+
 class TestAllowedNfsVolumes:
 
     # ------------------------------------------------------------------ #
