@@ -2,16 +2,16 @@
 
 A FastAPI-based Kubernetes Pod admission webhook with two components:
 
-- **Mutating webhook** (`/mutate`) — fills in missing security-context defaults before a pod is admitted.
-- **Validating webhook** (`/validate`) — rejects pods whose security context violates namespace policy.
-
-These TritonGPT/TritonAI webhooks use namespace annotations to establish desired policy and defaults for that namespace.  This is in contrast to `dsmlp-validator` and `dsmlp-mutator` which queries user/course settings from the SICad/awsed database.
-
-Both sets of webhooks can operate simultaneously within the cluster, with namespace labels determining which is invoked.  In theory, a namespace could subject its pods to both regimes.
+- **Mutating webhook** (`/mutate`) — fills in missing security-related fields with namespace-specific defaults before a pod is admitted.
+- **Validating webhook** (`/validate`) — rejects pods which violate namespace-specific policies and/or a set of hardcoded rules
 
 Both webhooks handle **Pod** resources directly and also inspect the pod templates
 embedded in **Deployment**, **ReplicaSet**, **StatefulSet**, **DaemonSet**, **Job**, and **CronJob** objects.
 All other resource kinds are passed through without inspection.
+
+A note for UCSD: these TritonGPT/TritonAI webhooks use namespace annotations to establish desired policy and defaults for that namespace.  This is in contrast to `dsmlp-validator` and `dsmlp-mutator` which queries user/course settings from the SICad/awsed database.
+
+Both sets of webhooks can operate simultaneously within the cluster, with namespace labels determining which is invoked.  In theory, a namespace could subject its pods to both regimes.
 
 ---
 
@@ -19,16 +19,13 @@ All other resource kinds are passed through without inspection.
 
 ### Mutating webhook (`/mutate`)
 
-Called first by the API server.  Handles Pod resources and the pod templates
-of Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
-For workload resources, patch paths are rewritten from `/spec/…` to the
-appropriate template spec location (e.g. `/spec/template/spec/…` for a
-Deployment, `/spec/jobTemplate/spec/template/spec/…` for a CronJob).
+Called first by the API server.  As a webhook, handles Pod resources only, but 
+is used internal to the Validator when processing Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
 
 For each active constraint annotation on the pod's namespace:
 
 1. Looks up the corresponding `sc.dsmlp.ucsd.edu/default.<field>` annotation.
-2. For **REQUIRED_SCALAR** fields (`runAsUser`, `runAsGroup`, `allowPrivilegeEscalation`):
+2. For **REQUIRED_SCALAR** fields (`runAsUser`, `runAsGroup`):
    injects a pod-level `securityContext` default for any container that does not already
    set the field.  Fields that are already set are **not modified**.
 3. For **OPTIONAL_SCALAR** (`fsGroup`) and **OPTIONAL_LIST** (`supplementalGroups`) fields:
@@ -40,7 +37,7 @@ For each active constraint annotation on the pod's namespace:
 
 ### Validating webhook (`/validate`)
 
-Called after mutation.  Handles Pod resources and the pod templates of
+Called after mutation.  Handles Pod resources as well as the pod templates of
 Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
 For workload resources, namespace defaults are applied to the pod template
 spec via the mutator before validation so the validator sees the same
