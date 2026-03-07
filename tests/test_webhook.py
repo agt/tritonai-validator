@@ -22,7 +22,7 @@ def _review(
     pod_spec: dict | None = None,
 ) -> dict:
     pod_spec = pod_spec or {
-        "containers": [{"name": "app", "securityContext": {"runAsUser": 1000}}]
+        "containers": [{"name": "app", "securityContext": {"runAsUser": 1000, "runAsNonRoot": True}}]
     }
     return {
         "apiVersion": "admission.k8s.io/v1",
@@ -73,7 +73,7 @@ def test_non_pod_unsupported_kind_allowed():
 def test_pod_allowed_when_constraints_satisfied():
     with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
         body = _review(
-            pod_spec={"containers": [{"name": "app", "securityContext": {"runAsUser": 1000}}]}
+            pod_spec={"containers": [{"name": "app", "securityContext": {"runAsUser": 1000, "runAsNonRoot": True}}]}
         )
         resp = client.post("/validate", json=body)
     assert resp.status_code == 200
@@ -83,7 +83,7 @@ def test_pod_allowed_when_constraints_satisfied():
 def test_pod_denied_when_constraint_fails():
     with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
         body = _review(
-            pod_spec={"containers": [{"name": "app", "securityContext": {"runAsUser": 999}}]}
+            pod_spec={"containers": [{"name": "app", "securityContext": {"runAsUser": 999, "runAsNonRoot": True}}]}
         )
         resp = client.post("/validate", json=body)
     assert resp.status_code == 200

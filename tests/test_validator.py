@@ -19,7 +19,7 @@ def _pod(
     spec: dict = {}
     if pod_sc is not None:
         spec["securityContext"] = pod_sc
-    spec["containers"] = containers or [{"name": "app"}]
+    spec["containers"] = containers or [_container(sc={})]
     if init_containers:
         spec["initContainers"] = init_containers
     if ephemeral_containers:
@@ -37,7 +37,9 @@ def _container(
 ) -> dict:
     c: dict = {"name": name}
     if sc is not None:
-        c["securityContext"] = sc
+        effective_sc = dict(sc)
+        effective_sc.setdefault("runAsNonRoot", True)
+        c["securityContext"] = effective_sc
     if env is not None:
         c["env"] = env
     if env_from is not None:
@@ -65,11 +67,11 @@ class TestRunAsUser:
     ANNOTATIONS = {"sc.dsmlp.ucsd.edu/runAsUser": "1000"}
 
     def test_pod_level_match(self):
-        spec = _pod(pod_sc={"runAsUser": 1000}, containers=[_container()])
+        spec = _pod(pod_sc={"runAsUser": 1000}, containers=[_container(sc={})])
         assert validate_pod(self.ANNOTATIONS, spec).allowed is True
 
     def test_pod_level_no_match(self):
-        spec = _pod(pod_sc={"runAsUser": 999}, containers=[_container()])
+        spec = _pod(pod_sc={"runAsUser": 999}, containers=[_container(sc={})])
         result = validate_pod(self.ANNOTATIONS, spec)
         assert result.allowed is False
         assert "runAsUser" in result.message
@@ -283,7 +285,7 @@ class TestMultipleConstraints:
 class TestEdgeCases:
     def test_malformed_annotation_rejects(self):
         annotations = {"sc.dsmlp.ucsd.edu/runAsUser": "foo,bar"}
-        spec = _pod(pod_sc={"runAsUser": 1000})
+        spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
         result = validate_pod(annotations, spec)
         assert result.allowed is False
         assert "malformed" in result.message.lower()
@@ -437,6 +439,65 @@ class TestHardcodedConstraints:
         assert validate_pod(_ALWAYS_ANNOTATIONS, _ALWAYS_SPEC_OK).allowed is True
 
     # ------------------------------------------------------------------ #
+    # runAsNonRoot
+    # ------------------------------------------------------------------ #
+
+    def test_run_as_non_root_pod_level_true_allows_missing_container_values(self):
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"runAsUser": 1000})],
+        )
+        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+
+    def test_run_as_non_root_pod_level_false_rejected(self):
+        spec = _pod(
+            pod_sc={"runAsNonRoot": False},
+            containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": True})],
+        )
+        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "Pod securityContext.runAsNonRoot" in result.message
+
+    def test_run_as_non_root_without_pod_value_every_container_must_set_true(self):
+        spec = _pod(
+            containers=[
+                _container("c1", sc={"runAsUser": 1000, "runAsNonRoot": True}),
+                _container("c2", sc={"runAsUser": 1000, "runAsNonRoot": True}),
+            ]
+        )
+        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+
+    def test_run_as_non_root_missing_container_value_without_pod_value_rejected(self):
+        spec = _pod(
+            pod_sc={"runAsUser": 1000},
+            containers=[
+                _container("c1", sc={"runAsUser": 1000, "runAsNonRoot": True}),
+                _container("c2", sc=None),
+            ]
+        )
+        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "must set securityContext.runAsNonRoot=true" in result.message
+
+    def test_run_as_non_root_container_false_rejected_even_with_pod_true(self):
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container("app", sc={"runAsUser": 1000, "runAsNonRoot": False})],
+        )
+        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "Container 'app' securityContext.runAsNonRoot" in result.message
+
+    def test_run_as_non_root_ephemeral_container_included(self):
+        spec = _pod(
+            containers=[_container("app", sc={"runAsUser": 1000, "runAsNonRoot": True})],
+            ephemeral_containers=[_container("debug", sc={"runAsUser": 1000, "runAsNonRoot": False})],
+        )
+        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        assert result.allowed is False
+        assert "debug" in result.message
+
+    # ------------------------------------------------------------------ #
     # allowPrivilegeEscalation
     # ------------------------------------------------------------------ #
 
@@ -527,11 +588,11 @@ class TestHardcodedConstraints:
     # ------------------------------------------------------------------ #
 
     def test_sysctls_absent_ok(self):
-        spec = _pod(pod_sc={"runAsUser": 1000})
+        spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
         assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
 
     def test_sysctls_empty_ok(self):
-        spec = _pod(pod_sc={"runAsUser": 1000, "sysctls": []})
+        spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True, "sysctls": []})
         assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
 
     def test_sysctls_nonempty_rejected(self):

@@ -291,9 +291,12 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
     """Enforce security constraints that apply to every pod, regardless of namespace annotations.
 
     Pod-level:
+      - securityContext.runAsNonRoot must be absent or true.
       - securityContext.sysctls must be absent or empty.
 
     Per container (containers, initContainers, ephemeralContainers):
+      - securityContext.runAsNonRoot must be true when set.
+      - If pod-level runAsNonRoot is not true, every container must set runAsNonRoot=true.
       - securityContext.allowPrivilegeEscalation must be absent or false.
       - securityContext.privileged must be absent or false.
       - securityContext.capabilities.add must be absent, empty, or contain only NET_BIND_SERVICE.
@@ -306,6 +309,14 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
 
     # Pod-level: sysctls
     pod_sc = _pod_sc(pod_spec)
+    pod_run_as_non_root = pod_sc.get("runAsNonRoot")
+    pod_run_as_non_root_true = pod_run_as_non_root is True
+    if pod_run_as_non_root is not None and pod_run_as_non_root is not True:
+        errors.append(
+            "Pod securityContext.runAsNonRoot must be absent or true; "
+            f"found {pod_run_as_non_root!r}"
+        )
+
     sysctls = pod_sc.get("sysctls")
     if sysctls:  # non-None and non-empty list
         errors.append(
@@ -316,6 +327,18 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
     for container in _all_containers(pod_spec):
         cname = _container_name(container)
         csc = _container_sc(container)
+
+        run_as_non_root = csc.get("runAsNonRoot")
+        if run_as_non_root is not None and run_as_non_root is not True:
+            errors.append(
+                f"Container {cname!r} securityContext.runAsNonRoot must be true when set; "
+                f"found {run_as_non_root!r}"
+            )
+        elif not pod_run_as_non_root_true and run_as_non_root is None:
+            errors.append(
+                f"Container {cname!r} must set securityContext.runAsNonRoot=true "
+                "when pod-level runAsNonRoot is not true"
+            )
 
         ape = csc.get("allowPrivilegeEscalation")
         if ape is not None and ape is not False:

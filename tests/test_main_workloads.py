@@ -21,14 +21,14 @@ NS_ANNOTATIONS = {"sc.dsmlp.ucsd.edu/runAsUser": "1000"}
 # A pod spec that satisfies all hardcoded constraints and the runAsUser annotation
 _VALID_POD_SPEC = {
     "containers": [
-        {"name": "app", "securityContext": {"runAsUser": 1000, "allowPrivilegeEscalation": False}}
+        {"name": "app", "securityContext": {"runAsUser": 1000, "runAsNonRoot": True, "allowPrivilegeEscalation": False}}
     ]
 }
 
 # A pod spec that violates runAsUser
 _BAD_POD_SPEC = {
     "containers": [
-        {"name": "app", "securityContext": {"runAsUser": 999, "allowPrivilegeEscalation": False}}
+        {"name": "app", "securityContext": {"runAsUser": 999, "runAsNonRoot": True, "allowPrivilegeEscalation": False}}
     ]
 }
 
@@ -158,7 +158,7 @@ class TestTemplateSpecPointer:
 
 class TestRewritePatchPaths:
     def test_rewrites_securitycontext_path(self):
-        patches = [{"op": "add", "path": "/spec/securityContext", "value": {"runAsUser": 1000}}]
+        patches = [{"op": "add", "path": "/spec/securityContext", "value": {"runAsUser": 1000, "runAsNonRoot": True}}]
         result = _rewrite_patch_paths(patches, "/spec/template/spec")
         assert result[0]["path"] == "/spec/template/spec/securityContext"
 
@@ -249,7 +249,7 @@ class TestValidateWorkloads:
         }
         # Container has no runAsUser — mutator should inject default, then validator passes
         pod_spec = {
-            "containers": [{"name": "app", "securityContext": {"allowPrivilegeEscalation": False}}]
+            "containers": [{"name": "app", "securityContext": {"runAsNonRoot": True, "allowPrivilegeEscalation": False}}]
         }
         with patch("app.main.get_namespace_security_annotations", return_value=annotations):
             body = _workload_review("Deployment", pod_spec=pod_spec)
