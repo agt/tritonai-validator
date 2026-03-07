@@ -5,10 +5,6 @@
 # annotations; the validating webhook then performs the final accept/reject.
 #
 # ORDERING NOTE: Kubernetes runs mutating webhooks before validating webhooks.
-# Within mutating webhooks, ordering is determined alphabetically by webhook
-# name.  The name "mutate.pod-security.tritonai.io" sorts before
-# "validate.pod-security.tritonai.io" (in the ValidatingWebhookConfiguration),
-# so the mutating webhook will always run first.
 #
 # caBundle / cert-manager: see notes in webhook.yaml.
 apiVersion: admissionregistration.k8s.io/v1
@@ -17,7 +13,7 @@ metadata:
   name: pod-security-webhook
   # Uncomment if using cert-manager CA injector:
   # annotations:
-  #   cert-manager.io/inject-ca-from: tritonai-system/pod-security-webhook-cert
+  #   cert-manager.io/inject-ca-from: tgptinf-system/pod-security-webhook-cert
 spec:
   webhooks:
     - name: mutate.pod-security.tritonai.io
@@ -32,7 +28,7 @@ spec:
       clientConfig:
         service:
           name: pod-security-webhook
-          namespace: tritonai-system
+          namespace: tgptinf-system
           path: /mutate
           port: 443
         # Replace with base64-encoded CA certificate that signed the TLS cert.
@@ -43,14 +39,17 @@ spec:
           operations: ["CREATE", "UPDATE"]
           resources: ["pods"]
           scope: "Namespaced"
-      # Mirror the namespace exclusion from the validating webhook
       namespaceSelector:
         matchExpressions:
           - key: kubernetes.io/metadata.name
             operator: NotIn
             values:
-              - tritonai-system
+              - tgptinf-system
               - kube-system
+          - key: mutator.sc.dsmlp.ucsd.edu
+            operator: In
+            values:
+            - enabled
       # Only mutate pods that do not yet have the webhook's own annotation
       # (prevents re-mutation of already-processed pods on UPDATE)
       objectSelector:

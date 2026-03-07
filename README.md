@@ -1,17 +1,24 @@
+
+## Important background info:
+- https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#what-are-admission-webhooks
+
+
+_Note (agt): this validator was built via Claude Code, with prompts as outlined in PROMPT_LOG.md.  I have reviewed the code and tests and am confident in its output._
+
 # TritonAI Pod Security Admission Webhook
 
 A FastAPI-based Kubernetes Pod admission webhook with two components:
 
-- **Mutating webhook** (`/mutate`) — fills in missing security-context defaults before a pod is admitted.
-- **Validating webhook** (`/validate`) — rejects pods whose security context violates namespace policy.
-
-These TritonGPT/TritonAI webhooks use namespace annotations to establish desired policy and defaults for that namespace.  This is in contrast to `dsmlp-validator` and `dsmlp-mutator` which queries user/course settings from the SICad/awsed database.
-
-Both sets of webhooks can operate simultaneously within the cluster, with namespace labels determining which is invoked.  In theory, a namespace could subject its pods to both regimes.
+- **Mutating webhook** (`/mutate`) — fills in missing security-related fields with namespace-specific defaults before a pod is admitted.
+- **Validating webhook** (`/validate`) — rejects pods which violate namespace-specific policies and/or a set of hardcoded rules
 
 Both webhooks handle **Pod** resources directly and also inspect the pod templates
 embedded in **Deployment**, **ReplicaSet**, **StatefulSet**, **DaemonSet**, **Job**, and **CronJob** objects.
 All other resource kinds are passed through without inspection.
+
+A note for UCSD: these TritonGPT/TritonAI webhooks use namespace annotations to establish desired policy and defaults for that namespace.  This is in contrast to `dsmlp-validator` and `dsmlp-mutator` which queries user/course settings from the SICad/awsed database.
+
+Both sets of webhooks can operate simultaneously within the cluster, with namespace labels determining which is invoked.  In theory, a namespace could subject its pods to both regimes.
 
 ---
 
@@ -19,11 +26,8 @@ All other resource kinds are passed through without inspection.
 
 ### Mutating webhook (`/mutate`)
 
-Called first by the API server.  Handles Pod resources and the pod templates
-of Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
-For workload resources, patch paths are rewritten from `/spec/…` to the
-appropriate template spec location (e.g. `/spec/template/spec/…` for a
-Deployment, `/spec/jobTemplate/spec/template/spec/…` for a CronJob).
+Called first by the API server.  As a webhook, handles Pod resources only, but 
+is used internal to the Validator when processing Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
 
 For each active constraint annotation on the pod's namespace:
 
@@ -43,7 +47,7 @@ For each active constraint annotation on the pod's namespace:
 
 ### Validating webhook (`/validate`)
 
-Called after mutation.  Handles Pod resources and the pod templates of
+Called after mutation.  Handles Pod resources as well as the pod templates of
 Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
 For workload resources, namespace defaults are applied to the pod template
 spec via the mutator before validation so the validator sees the same
@@ -364,3 +368,77 @@ kubectl apply -f deploy/webhook.yaml
 | `PORT`         | `8443`  | Listening port (dev entrypoint only)|
 | `TLS_KEY_FILE` | —       | Path to TLS private key             |
 | `TLS_CERT_FILE`| —       | Path to TLS certificate             |
+
+---
+
+## Pod Security Standards Compliance Analysis
+
+This section maps the webhook's hardcoded constraints and configurable namespace annotations against the Kubernetes [`baseline`](https://kubernetes.io/docs/concepts/security/pod-security-standards/#baseline) and [`restricted`](https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted) Pod Security Standards, as documented in [KUBERNETES_SECURITY_STANDARDS.md](./KUBERNETES_SECURITY_STANDARDS.md).
+
+### Legend
+
+| Symbol | Meaning |
+|--------|---------|
+| ✅ Enforced | Hardcoded; always applied regardless of namespace annotations |
+| ✅ Stricter | Webhook enforces a tighter rule than the standard requires (hardcoded) |
+| ⚙️ Configurable | Compliance depends on how the namespace annotation is set; not guaranteed by default |
+| ⚠️ Partial | Standard is partially addressed but a gap remains that no current configuration can close |
+| ❌ Not enforced | Webhook does not check this control at all |
+
+---
+
+### Baseline Policy
+
+| Control | Restricted fields | Standard allows | Webhook status | Notes |
+|---------|------------------|-----------------|----------------|-------|
+| HostProcess | `spec.securityContext.windowsOptions.hostProcess`, `spec.containers[*].securityContext.windowsOptions.hostProcess`, init/ephemeral containers | `undefined/nil`, `false` | ❌ Not enforced | Windows-only feature; these fields are not inspected. |
+| Host Namespaces | `spec.hostNetwork`, `spec.hostPID`, `spec.hostIPC` | `undefined/nil`, `false` | ❌ Not enforced | Not validated; a pod may share the host network, PID, or IPC namespace. |
+| Privileged Containers | `spec.containers[*].securityContext.privileged`, init/ephemeral containers | `undefined/nil`, `false` | ✅ Enforced | Hardcoded: `privileged` must be absent or `false`. |
+| Capabilities (`add`) | `spec.containers[*].securityContext.capabilities.add`, init/ephemeral containers | `undefined/nil`, or one of 14 named capabilities | ✅ Stricter | Only `NET_BIND_SERVICE` may appear in `capabilities.add`. Baseline permits 13 additional capabilities (e.g. `CHOWN`, `KILL`, `SETUID`); the webhook rejects them all. `capabilities.drop` is not checked (required only by Restricted). |
+| HostPath Volumes | `spec.volumes[*].hostPath` | `undefined/nil` | ✅ Enforced | `hostPath` is absent from the hardcoded allowed volume-type set; hostPath volumes are always rejected. |
+| Host Ports | `spec.containers[*].ports[*].hostPort`, init/ephemeral containers | `undefined/nil`, `0` | ❌ Not enforced | Container port bindings to the host are not validated. |
+| Host Probes / Lifecycle Hooks (v1.34+) | `httpGet.host` and `tcpSocket.host` on liveness/readiness/startup probes and lifecycle hooks | `undefined/nil`, `""` | ❌ Not enforced | Probe and lifecycle hook `host` fields are not inspected. |
+| AppArmor | `spec.securityContext.appArmorProfile.type`, `spec.containers[*].securityContext.appArmorProfile.type`, init/ephemeral containers; `metadata.annotations["container.apparmor.security.beta.kubernetes.io/*"]` | `undefined/nil`, `RuntimeDefault`, `Localhost` | ❌ Not enforced | AppArmor profile type is not checked; `Unconfined` or arbitrary custom profiles are not blocked. |
+| SELinux | `seLinuxOptions.type` (pod & all containers); `seLinuxOptions.user`, `seLinuxOptions.role` (pod & all containers) | type: `undefined/""`, `container_t`, `container_init_t`, `container_kvm_t`, `container_engine_t`; user/role: `undefined/""` | ❌ Not enforced | SELinux type, user, and role fields are not inspected. |
+| `/proc` Mount Type | `spec.containers[*].securityContext.procMount`, init/ephemeral containers | `undefined/nil`, `Default` | ✅ Enforced | Hardcoded: `procMount` must be absent, `""`, or `"Default"`. |
+| Seccomp | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | `undefined/nil`, `RuntimeDefault`, `Localhost` (i.e. `Unconfined` is disallowed) | ❌ Not enforced | Seccomp profile type is not inspected; `Unconfined` is not blocked. |
+| Sysctls | `spec.securityContext.sysctls[*].name` | `undefined/nil`, or a specific set of "safe" sysctls (`kernel.shm_rmid_forced`, several `net.ipv4.*`) | ✅ Stricter | All sysctls are forbidden (hardcoded: `sysctls` must be absent or `[]`). This is more restrictive than Baseline, which permits the safe sysctl subset. |
+
+---
+
+### Restricted Policy
+
+Restricted is cumulative — it includes all Baseline controls above, plus the following.
+
+| Control | Restricted fields | Standard requires | Webhook status | Notes |
+|---------|------------------|-------------------|----------------|-------|
+| *(all Baseline controls)* | — | *(see table above)* | *(as above)* | — |
+| Volume Types | `spec.volumes[*]` | Only `configMap`, `csi`, `downwardAPI`, `emptyDir`, `ephemeral`, `persistentVolumeClaim`, `projected`, `secret` | ⚠️ Partial | The hardcoded allowed set includes extra types not permitted by Restricted: `nfs`, `image`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate`. These can be excluded using `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`, reducing the effective set to `configMap`, `downwardAPI`, `emptyDir`, `persistentVolumeClaim`, `projected`, `secret`. However, `csi` and `ephemeral` — which Restricted allows — are not in the webhook's base set and cannot be added via annotation, so pods requiring those types will always be rejected. |
+| Privilege Escalation | `spec.containers[*].securityContext.allowPrivilegeEscalation`, init/ephemeral containers | Must be explicitly `false` | ⚠️ Partial | The webhook rejects any value other than `false` (hardcoded), but it also accepts the field being absent. Restricted requires the field to be **explicitly set to `false`**; omitting it is not compliant. |
+| Running as Non-root (`runAsNonRoot`) | `spec.securityContext.runAsNonRoot`, `spec.containers[*].securityContext.runAsNonRoot`, init/ephemeral containers | `true` at pod or container level | ❌ Not enforced | The `runAsNonRoot` boolean field is not inspected. |
+| Running as Non-root user (`runAsUser != 0`) | `spec.securityContext.runAsUser`, `spec.containers[*].securityContext.runAsUser`, init/ephemeral containers | Any non-zero value, or `undefined/null` | ⚙️ Configurable | The webhook enforces `runAsUser` through `sc.dsmlp.ucsd.edu/runAsUser`. Setting that annotation to `">0"` (or any constraint that excludes `0`) satisfies this control. There is no hardcoded default preventing UID 0; compliance depends entirely on the namespace annotation. |
+| Seccomp (Restricted) | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | Must be `RuntimeDefault` or `Localhost` (absence is not permitted) | ❌ Not enforced | Seccomp profile type is not inspected. Under Restricted, omitting the field is a violation; the webhook cannot enforce this without new logic. |
+| Capabilities (`drop ALL`) | `spec.containers[*].securityContext.capabilities.drop`, init/ephemeral containers | Must include `ALL` | ❌ Not enforced | `capabilities.drop` is not checked. The webhook validates `capabilities.add` (only `NET_BIND_SERVICE` permitted) but does not require `drop: [ALL]`. |
+
+---
+
+### Summary
+
+**Baseline:** The webhook natively satisfies four Baseline controls — privileged containers, hostPath volumes, `/proc` mount type, and sysctls — and is in fact stricter than Baseline on both capabilities and sysctls. The following Baseline controls are **not addressed** and would require new validation logic:
+
+- Host namespaces (`hostNetwork`, `hostPID`, `hostIPC`)
+- AppArmor and SELinux profile restrictions
+- Seccomp (blocking `Unconfined`)
+- Host ports
+- Host probes and lifecycle hook `host` fields
+- HostProcess (Windows)
+
+**Restricted:** On top of the Baseline gaps, the following Restricted-specific controls are not met regardless of how namespace annotations are configured:
+
+- `allowPrivilegeEscalation` must be **explicitly** `false`; the webhook accepts absence.
+- `runAsNonRoot: true` is not validated.
+- Seccomp profile must be `RuntimeDefault` or `Localhost`; the webhook does not check it.
+- `capabilities.drop: [ALL]` is not enforced.
+- Volume type coverage cannot be made exactly Restricted-compliant: the `prohibitedVolumeTypes` annotation can remove the webhook's extra types, but `csi` and `ephemeral` (permitted by Restricted) are permanently blocked, making those workloads incompatible.
+
+The one Restricted control that **is** achievable through configuration is the non-zero UID requirement: setting `sc.dsmlp.ucsd.edu/runAsUser: ">0"` on a namespace enforces it.

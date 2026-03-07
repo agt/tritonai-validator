@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-security-webhook
+  namespace: tgptinf-system
+  labels:
+    app: pod-security-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pod-security-webhook
+  template:
+    metadata:
+      labels:
+        app: pod-security-webhook
+    spec:
+      serviceAccountName: pod-security-webhook
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: webhook
+          # Replace with your actual image reference after pushing to a registry
+          image: tritonai/pod-security-webhook:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8443
+              name: https
+          env:
+            - name: LOG_LEVEL
+              value: "INFO"
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: tls
+          secret:
+            secretName: pod-security-webhook-tls
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-security-webhook
+  namespace: tgptinf-system
+spec:
+  selector:
+    app: pod-security-webhook
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+

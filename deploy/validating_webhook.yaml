@@ -1,0 +1,47 @@
+# ValidatingWebhookConfiguration — the API server will call this webhook for
+# every Pod CREATE/UPDATE operation across all namespaces.
+#
+# caBundle: must contain the CA certificate (base64-encoded) that signed the
+# webhook's TLS certificate. If using cert-manager with the CA injector, set
+# this to "" and add the cert-manager.io/inject-ca-from annotation.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pod-security-webhook
+  # Uncomment if using cert-manager CA injector:
+  # annotations:
+  #   cert-manager.io/inject-ca-from: tgptinf-system/pod-security-webhook-cert
+spec:
+  webhooks:
+    - name: pod-security.tritonai.ucsd.edu
+      admissionReviewVersions: ["v1"]
+      sideEffects: None
+      failurePolicy: Fail       # Reject pods if the webhook is unavailable
+      timeoutSeconds: 10
+      clientConfig:
+        service:
+          name: pod-security-webhook
+          namespace: tgptinf-system
+          path: /validate
+          port: 443
+        # Replace with base64-encoded CA certificate that signed the TLS cert.
+        # Generate with: base64 -w0 ca.crt
+        caBundle: <BASE64_ENCODED_CA_CRT>
+      rules:
+        - apiGroups: [""]
+          apiVersions: ["v1"]
+          operations: ["CREATE", "UPDATE"]
+          resources: ["pods","deployments","jobs","cronjobs","statefulsets"]
+          scope: "Namespaced"
+      # Exclude the webhook's own namespace to prevent deadlocks
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              - tgptinf-system
+              - kube-system
+          - key: validator.sc.dsmlp.ucsd.edu
+            operator: In
+            values:
+            - enabled
