@@ -28,7 +28,7 @@ Deployment, `/spec/jobTemplate/spec/template/spec/…` for a CronJob).
 For each active constraint annotation on the pod's namespace:
 
 1. Looks up the corresponding `sc.dsmlp.ucsd.edu/default.<field>` annotation.
-2. For **REQUIRED_SCALAR** fields (`runAsUser`, `runAsGroup`, `allowPrivilegeEscalation`):
+2. For **REQUIRED_SCALAR** fields (`runAsUser`, `runAsGroup`):
    injects a pod-level `securityContext` default for any container that does not already
    set the field.  Fields that are already set are **not modified**.
 3. For **OPTIONAL_SCALAR** (`fsGroup`) and **OPTIONAL_LIST** (`supplementalGroups`) fields:
@@ -37,6 +37,9 @@ For each active constraint annotation on the pod's namespace:
 4. For **NODE_SELECTOR** (`nodeLabel`): removes `spec.nodeName` unconditionally, and
    injects the default `key=value` label as a new `spec.nodeSelector` only when the
    pod specifies no `nodeSelector` at all.  Any existing `nodeSelector` is left untouched.
+5. **Unconditionally** sets `spec.securityContext.runAsNonRoot = true` when that field
+   is absent.  Existing values (including `false`) are left untouched so the validator
+   can reject them.
 
 ### Validating webhook (`/validate`)
 
@@ -215,10 +218,14 @@ webhook.  They are not configurable via namespace annotations.
 
 ### Pod-level
 
-| Field | Allowed values |
-|---|---|
-| `securityContext.sysctls` | absent or `[]` |
-| `volumes[*]` type | `configMap`, `downwardAPI`, `emptyDir`, `image`, `nfs`, `persistentVolumeClaim`, `projected`, `secret`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate` (base set; further restricted by `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`) |
+| Field | Allowed values | Semantics |
+|---|---|---|
+| `hostNetwork` | absent or `false` | hardcoded |
+| `hostPID` | absent or `false` | hardcoded |
+| `hostIPC` | absent or `false` | hardcoded |
+| `securityContext.runAsNonRoot` | `true` | REQUIRED_SCALAR — pod-level `true` covers all containers; if absent at pod level every container must individually set it to `true` |
+| `securityContext.sysctls` | absent or `[]` | hardcoded |
+| `volumes[*]` type | `configMap`, `downwardAPI`, `emptyDir`, `image`, `nfs`, `persistentVolumeClaim`, `projected`, `secret`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate` (base set; further restricted by `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`) | hardcoded |
 
 ### Container-level (applies to `containers`, `initContainers`, and `ephemeralContainers`)
 
@@ -230,6 +237,39 @@ webhook.  They are not configurable via namespace annotations.
 | `securityContext.procMount` | absent, `""`, or `"Default"` |
 
 Any violation is reported as a validation error and the pod is rejected.
+
+---
+
+## Pod Security Standards Comparison
+
+The table below maps this webhook's hardcoded constraints against the Kubernetes
+[Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
+(PSS) **Baseline** and **Restricted** profiles.
+
+| Control | PSS Baseline | PSS Restricted | This webhook |
+|---------|:---:|:---:|---|
+| `hostNetwork` / `hostPID` / `hostIPC` | ✗ disallowed | ✗ disallowed | **Enforced** — must be absent or `false` |
+| `hostProcess` (Windows) | ✗ disallowed | ✗ disallowed | Not enforced |
+| `privileged` | ✗ disallowed | ✗ disallowed | **Enforced** — must be absent or `false` |
+| Capabilities (`add`) | Baseline allowlist | Drop ALL; only NET\_BIND\_SERVICE | **Enforced** — only `NET_BIND_SERVICE` permitted |
+| Capabilities (`drop`) | — | Must include `ALL` | Not enforced |
+| HostPath volumes | ✗ disallowed | ✗ disallowed | **Enforced** — via allowed volume type set |
+| Volume types | — | Restricted set | **Enforced** — hardcoded allowed set (further narrowable by annotation) |
+| Host ports | ✗ disallowed | ✗ disallowed | Not enforced |
+| `/proc` mount type | Default only | Default only | **Enforced** — must be absent, `""`, or `"Default"` |
+| Sysctls | Safe sysctls only | Safe sysctls only | **Enforced** — all sysctls disallowed |
+| AppArmor | No custom profiles | No custom profiles | Not enforced |
+| SELinux options | No custom options | No custom options | Not enforced |
+| Seccomp | Unconfined disallowed | RuntimeDefault or Localhost | Not enforced |
+| `allowPrivilegeEscalation` | — | ✗ disallowed | **Enforced** — must be absent or `false` |
+| `runAsNonRoot` | — | ✓ required | **Enforced** — must be `true` (pod-level or per-container) |
+| Run as non-root UID (runAsUser ≠ 0) | — | Recommended | Not checked directly (`runAsNonRoot=true` covers the intent) |
+| Non-root supplemental groups | — | Recommended | Not enforced |
+
+**Summary:** the hardcoded constraints satisfy every control in the PSS **Restricted**
+profile that is expressible at the pod/container securityContext level, except for
+`capabilities.drop ALL`, seccomp, AppArmor, SELinux, hostProcess, and host-ports
+checks, which are not currently enforced.
 
 ---
 
