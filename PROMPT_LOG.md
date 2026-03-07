@@ -172,3 +172,22 @@ Expand scope of the validator to include review of of the Pod templates containe
 
 When called by the kubernetes API server, the mutator should only patch kind==Pod.  (mutator may be called internally to support validation of workload templates).
 
+# Update prompt log
+
+please update PROMPT_LOG.md to incorporate any of my prompts which have not been captured there.
+
+# Host namespace hardcoded rules
+
+Update the Validator hardcoded rules to enforce that Pod spec.hostNetwork, spec.hostPID, spec.hostIPC are each either absent, or set to False;  no changes to mutator are needed.
+
+# runAsNonRoot REQUIRED_SCALAR constraint
+
+update Validator to enforce a new REQUIRED_SCALAR constraint "runAsNonRoot" which must be True following the same semantics as runAsUser:  if defined in any container, it must be set to "True"; and unless all containers set runAsNonRoot to true, the Pod security context must do so.
+
+# runAsNonRoot mutator default
+
+update Mutator to set pod securityContext.runAsNonRoot=True if that field is empty or absent.
+
+# Update README and prompt log
+
+Update README.md's documentation and its Pod Security Standard comparison matrix to reflect recent changes.  Also update PROMPT_LOG.md to include any meaningful prompts not already there.

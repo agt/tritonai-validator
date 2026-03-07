@@ -20,6 +20,11 @@ for rejecting any values that violate policy.
        nodeSelector at all.  Any existing nodeSelector (regardless of content)
        is left untouched.
 
+   runAsNonRoot (hardcoded, unconditional)
+     pod.spec.securityContext.runAsNonRoot is always set to True when the field
+     is absent.  Existing values (including False) are left untouched so the
+     downstream validator can reject them.
+
 Returns a (possibly empty) list of RFC 6902 JSON Patch operations.  The caller
 base64-encodes the JSON-serialised list and returns it to the API server, which
 then re-runs the mutated pod through all registered ValidatingAdmissionWebhooks.
@@ -155,6 +160,34 @@ def _mutate_required_scalar(
             })
 
 
+def _mutate_run_as_non_root(
+    pod: dict[str, Any],
+    patches: list[dict[str, Any]],
+) -> None:
+    """Unconditionally inject runAsNonRoot=True into pod-level securityContext if absent.
+
+    Only patches when securityContext.runAsNonRoot is absent (None).
+    Existing values — including False — are left untouched; the validator rejects them.
+    """
+    pod_sc: dict[str, Any] | None = pod.get("securityContext")
+
+    if pod_sc is not None:
+        if pod_sc.get("runAsNonRoot") is None:
+            pod_sc["runAsNonRoot"] = True
+            patches.append({
+                "op": "add",
+                "path": _ptr("spec", "securityContext", "runAsNonRoot"),
+                "value": True,
+            })
+    else:
+        pod["securityContext"] = {"runAsNonRoot": True}
+        patches.append({
+            "op": "add",
+            "path": "/spec/securityContext",
+            "value": {"runAsNonRoot": True},
+        })
+
+
 def _mutate_node_selector(
     pod: dict[str, Any],
     default_label: tuple[str, str] | None,
@@ -240,6 +273,9 @@ def _compute_mutations(
     if node_label_key in namespace_annotations:
         nl_default = _parse_default("nodeLabel", node_label_key, namespace_annotations)
         _mutate_node_selector(pod, nl_default, patches)
+
+    # --- runAsNonRoot (hardcoded, always True, unconditional) ---
+    _mutate_run_as_non_root(pod, patches)
 
     return pod, patches
 

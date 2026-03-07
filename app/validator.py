@@ -27,6 +27,12 @@ OPTIONAL_SCALAR / OPTIONAL_LIST semantics
   - The constraint is satisfied if the field is absent everywhere.
   - If the field *is* present (pod-level only for fsGroup/supplementalGroups),
     the value(s) must match.
+
+Hardcoded constraints (always enforced, not annotation-driven)
+──────────────────────────────────────────────────────────────
+securityContext.runAsNonRoot must be true; follows REQUIRED_SCALAR semantics:
+  pod-level True covers all containers; if absent at pod level every container
+  (including initContainers and ephemeralContainers) must individually set it to True.
 """
 from __future__ import annotations
 
@@ -291,6 +297,7 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
     """Enforce security constraints that apply to every pod, regardless of namespace annotations.
 
     Pod-level:
+      - hostNetwork, hostPID, hostIPC must each be absent or false.
       - securityContext.sysctls must be absent or empty.
 
     Per container (containers, initContainers, ephemeralContainers):
@@ -303,6 +310,14 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
     applies the sc.dsmlp.ucsd.edu/prohibitedVolumeTypes namespace annotation.
     """
     errors: list[str] = []
+
+    # Pod-level: host namespaces
+    for field in ("hostNetwork", "hostPID", "hostIPC"):
+        value = pod_spec.get(field)
+        if value is not None and value is not False:
+            errors.append(
+                f"Pod {field} must be absent or false; found {value!r}"
+            )
 
     # Pod-level: sysctls
     pod_sc = _pod_sc(pod_spec)
@@ -344,6 +359,51 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
             errors.append(
                 f"Container {cname!r} securityContext.procMount must be absent or 'Default'; "
                 f"found {proc_mount!r}"
+            )
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# runAsNonRoot hardcoded constraint (REQUIRED_SCALAR, value must be True)
+# ---------------------------------------------------------------------------
+
+
+def _validate_run_as_non_root(pod_spec: dict[str, Any]) -> list[str]:
+    """Enforce securityContext.runAsNonRoot=true on every pod.
+
+    Follows REQUIRED_SCALAR semantics:
+      - If the pod-level securityContext sets runAsNonRoot, it must be True.
+      - Any container that explicitly sets runAsNonRoot must set it to True.
+      - If the pod-level securityContext does not set runAsNonRoot, every
+        container (containers, initContainers, ephemeralContainers) must
+        individually set runAsNonRoot=True.
+    """
+    errors: list[str] = []
+    pod_sc = _pod_sc(pod_spec)
+    pod_value = pod_sc.get("runAsNonRoot")
+    pod_has_value = pod_value is not None
+
+    if pod_has_value and pod_value is not True:
+        errors.append(
+            f"Pod securityContext.runAsNonRoot must be true; found {pod_value!r}"
+        )
+
+    for container in _all_containers(pod_spec):
+        cname = _container_name(container)
+        csc = _container_sc(container)
+        c_value = csc.get("runAsNonRoot")
+
+        if c_value is not None:
+            if c_value is not True:
+                errors.append(
+                    f"Container {cname!r} securityContext.runAsNonRoot must be true; "
+                    f"found {c_value!r}"
+                )
+        elif not pod_has_value:
+            errors.append(
+                f"Container {cname!r} must set securityContext.runAsNonRoot=true "
+                f"(no pod-level default)"
             )
 
     return errors
@@ -571,6 +631,7 @@ def validate_pod(
 
     # Apply hardcoded constraints (always enforced)
     all_errors.extend(_validate_hardcoded_constraints(pod_spec))
+    all_errors.extend(_validate_run_as_non_root(pod_spec))
 
     # Apply volume type constraint (hardcoded base set, optionally narrowed by annotation)
     all_errors.extend(_validate_volume_types(pod_spec, namespace_annotations))

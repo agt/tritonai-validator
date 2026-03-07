@@ -73,7 +73,10 @@ def test_non_pod_unsupported_kind_allowed():
 def test_pod_allowed_when_constraints_satisfied():
     with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
         body = _review(
-            pod_spec={"containers": [{"name": "app", "securityContext": {"runAsUser": 1000}}]}
+            pod_spec={
+                "securityContext": {"runAsNonRoot": True},
+                "containers": [{"name": "app", "securityContext": {"runAsUser": 1000}}],
+            }
         )
         resp = client.post("/validate", json=body)
     assert resp.status_code == 200

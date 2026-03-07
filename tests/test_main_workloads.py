@@ -20,9 +20,10 @@ NS_ANNOTATIONS = {"sc.dsmlp.ucsd.edu/runAsUser": "1000"}
 
 # A pod spec that satisfies all hardcoded constraints and the runAsUser annotation
 _VALID_POD_SPEC = {
+    "securityContext": {"runAsNonRoot": True},
     "containers": [
         {"name": "app", "securityContext": {"runAsUser": 1000, "allowPrivilegeEscalation": False}}
-    ]
+    ],
 }
 
 # A pod spec that violates runAsUser
@@ -249,7 +250,8 @@ class TestValidateWorkloads:
         }
         # Container has no runAsUser — mutator should inject default, then validator passes
         pod_spec = {
-            "containers": [{"name": "app", "securityContext": {"allowPrivilegeEscalation": False}}]
+            "securityContext": {"runAsNonRoot": True},
+            "containers": [{"name": "app", "securityContext": {"allowPrivilegeEscalation": False}}],
         }
         with patch("app.main.get_namespace_security_annotations", return_value=annotations):
             body = _workload_review("Deployment", pod_spec=pod_spec)
