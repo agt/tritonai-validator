@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pod-security-webhook.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pod-security-webhook.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "pod-security-webhook.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443

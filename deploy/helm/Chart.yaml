@@ -1,0 +1,8 @@
+apiVersion: v2
+name: pod-security-webhook
+description: >
+  Kubernetes MutatingAdmissionWebhook + ValidatingAdmissionWebhook enforcing
+  per-namespace pod security policy for the TritonAI / DSMLP platform.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

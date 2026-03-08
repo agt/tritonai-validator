@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# pod-security-webhook Helm chart values
+# Install into the dedicated system namespace:
+#   helm install pod-security-webhook ./deploy/helm -n tgptinf-system --create-namespace
+# ---------------------------------------------------------------------------
+
+# Override the chart name used in resource names and labels.
+# Leave empty to use the chart name (pod-security-webhook).
+nameOverride: ""
+# Override the fully-qualified resource name (Deployment, Service, …).
+# Leave empty to derive it from nameOverride / chart name.
+fullnameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: tritonai/pod-security-webhook
+  tag: latest
+  pullPolicy: Always
+
+logLevel: INFO
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+tls:
+  # Base64-encoded CA certificate that signed the TLS cert presented by the
+  # webhook server.  Required by both webhook configurations.
+  # Generate with:  base64 -w0 ca.crt
+  caBundle: ""
+
+  # Base64-encoded server TLS certificate and private key stored in the Secret.
+  # Generate with:  base64 -w0 tls.crt  /  base64 -w0 tls.key
+  crt: ""
+  key: ""
+
+  # cert-manager CA injector: set to "<namespace>/<Certificate-name>" to have
+  # cert-manager populate caBundle automatically, e.g.:
+  #   certManagerAnnotation: "tgptinf-system/pod-security-webhook-cert"
+  # Leave empty to manage caBundle manually via tls.caBundle above.
+  certManagerAnnotation: ""
+
+webhook:
+  mutating:
+    # Ignore keeps pods flowing when the mutating webhook is temporarily down.
+    # The validating webhook (failurePolicy: Fail) still blocks non-compliant pods.
+    failurePolicy: Ignore
+    timeoutSeconds: 10
+
+  validating:
+    # Fail rejects pods if the validating webhook is unreachable.
+    failurePolicy: Fail
+    timeoutSeconds: 10
+
+  # Namespaces excluded from both webhooks.
+  # The webhook's own namespace must always be listed to prevent deadlocks.
+  excludedNamespaces:
+    - tgptinf-system
+    - kube-system
+
+rbac:
+  # ClusterRole and ClusterRoleBinding are cluster-scoped; names must be
+  # globally unique across the cluster.
+  clusterRoleName: tritonai-pod-security-webhook

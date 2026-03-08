@@ -1,0 +1,50 @@
+# ValidatingWebhookConfiguration — the API server calls this webhook for every
+# Pod CREATE/UPDATE across namespaces that carry the validator opt-in label.
+#
+# caBundle: must contain the CA certificate (base64-encoded) that signed the
+# webhook's TLS certificate.  If using cert-manager with the CA injector, set
+# tls.certManagerAnnotation in values.yaml and leave tls.caBundle empty.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "pod-security-webhook.fullname" . }}
+  labels:
+    {{- include "pod-security-webhook.labels" . | nindent 4 }}
+  {{- if .Values.tls.certManagerAnnotation }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Values.tls.certManagerAnnotation | quote }}
+  {{- end }}
+spec:
+  webhooks:
+    - name: pod-security.tritonai.ucsd.edu
+      admissionReviewVersions: ["v1"]
+      sideEffects: None
+      # Reject pods if the webhook is unreachable.
+      failurePolicy: {{ .Values.webhook.validating.failurePolicy }}
+      timeoutSeconds: {{ .Values.webhook.validating.timeoutSeconds }}
+      clientConfig:
+        service:
+          name: {{ include "pod-security-webhook.fullname" . }}
+          namespace: {{ .Release.Namespace }}
+          path: /validate
+          port: 443
+        caBundle: {{ .Values.tls.caBundle | quote }}
+      rules:
+        - apiGroups: [""]
+          apiVersions: ["v1"]
+          operations: ["CREATE", "UPDATE"]
+          resources: ["pods", "deployments", "jobs", "cronjobs", "statefulsets"]
+          scope: "Namespaced"
+      # Exclude the webhook's own namespace to prevent deadlocks.
+      namespaceSelector:
+        matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              {{- range .Values.webhook.excludedNamespaces }}
+              - {{ . | quote }}
+              {{- end }}
+          - key: validator.sc.dsmlp.ucsd.edu
+            operator: In
+            values:
+              - enabled
