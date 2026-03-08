@@ -11,6 +11,7 @@ sc.dsmlp.ucsd.edu/runAsGroup         →  REQUIRED_SCALAR
 sc.dsmlp.ucsd.edu/fsGroup            →  OPTIONAL_SCALAR  (pod-level only in k8s)
 sc.dsmlp.ucsd.edu/supplementalGroups →  OPTIONAL_LIST    (pod-level only in k8s)
 sc.dsmlp.ucsd.edu/nodeLabel          →  NODE_SELECTOR    (see below)
+sc.dsmlp.ucsd.edu/tolerations        →  TOLERATION_ALLOWLIST (see below)
 
 NODE_SELECTOR semantics
   - pod.spec.nodeName must be absent (bypassing nodeSelector is not permitted).
@@ -27,6 +28,13 @@ OPTIONAL_SCALAR / OPTIONAL_LIST semantics
   - The constraint is satisfied if the field is absent everywhere.
   - If the field *is* present (pod-level only for fsGroup/supplementalGroups),
     the value(s) must match.
+
+TOLERATION_ALLOWLIST semantics
+  - Annotation absent → no restriction; any pod tolerations are permitted.
+  - Annotation present → every pod toleration must be covered by at least one entry.
+  - Each entry is "key=value:effect" where any field may contain fnmatch-style globs.
+  - A value pattern of "*" additionally matches tolerations with operator "Exists"
+    (i.e. no value field), in addition to Equal with any value.
 
 Hardcoded constraints (always enforced, not annotation-driven)
 ──────────────────────────────────────────────────────────────
@@ -554,6 +562,96 @@ def _validate_nfs_volumes(
 
 
 # ---------------------------------------------------------------------------
+# Toleration allowlist constraint (annotation-driven)
+# ---------------------------------------------------------------------------
+
+_TOLERATIONS_KEY = "sc.dsmlp.ucsd.edu/tolerations"
+
+
+def _parse_permitted_tolerations(raw: str) -> list[tuple[str, str, str]]:
+    """Parse the tolerations annotation into (key_pattern, value_pattern, effect_pattern) tuples.
+
+    Raises ``ValueError`` on malformed tokens.
+    """
+    result = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise ValueError(f"expected 'key=value:effect' format, got {token!r}")
+        kv_part, effect_pat = token.rsplit(":", 1)
+        effect_pat = effect_pat.strip()
+        if "=" not in kv_part:
+            raise ValueError(f"expected 'key=value' before ':', got {kv_part!r}")
+        key_pat, value_pat = kv_part.split("=", 1)
+        result.append((key_pat.strip(), value_pat.strip(), effect_pat))
+    if not result:
+        raise ValueError("no permitted toleration entries parsed from annotation value")
+    return result
+
+
+def _toleration_permitted(
+    tol: dict[str, Any],
+    key_pat: str,
+    value_pat: str,
+    effect_pat: str,
+) -> bool:
+    """Return True if *tol* is covered by the given (key, value, effect) pattern triple."""
+    tol_key = tol.get("key", "")
+    tol_effect = tol.get("effect", "")
+    tol_operator = tol.get("operator", "Equal")
+
+    if not fnmatch.fnmatch(tol_key, key_pat):
+        return False
+    if not fnmatch.fnmatch(tol_effect, effect_pat):
+        return False
+
+    # value_pat == "*": matches both Equal (any value) and Exists (no value field)
+    if value_pat == "*":
+        return True
+
+    # Non-wildcard value pattern: pod must be using Equal operator with a matching value
+    if tol_operator == "Exists":
+        return False
+    return fnmatch.fnmatch(tol.get("value", ""), value_pat)
+
+
+def _validate_tolerations(
+    pod_spec: dict[str, Any],
+    namespace_annotations: dict[str, str],
+) -> list[str]:
+    """Validate pod tolerations against the sc.dsmlp.ucsd.edu/tolerations annotation.
+
+    Annotation absent → no restriction; any (or no) tolerations are permitted.
+    Annotation present → every pod toleration must match at least one permitted entry.
+    Each permitted entry may use fnmatch-style globs in any field.
+    A value pattern of ``"*"`` additionally covers the ``Exists`` operator (no value).
+    """
+    raw = namespace_annotations.get(_TOLERATIONS_KEY)
+    if raw is None:
+        return []
+
+    tolerations = pod_spec.get("tolerations") or []
+    if not tolerations:
+        return []
+
+    try:
+        permitted = _parse_permitted_tolerations(raw.strip())
+    except ValueError as exc:
+        return [f"Namespace annotation {_TOLERATIONS_KEY!r} is malformed: {exc}"]
+
+    errors: list[str] = []
+    for tol in tolerations:
+        if not any(_toleration_permitted(tol, kp, vp, ep) for kp, vp, ep in permitted):
+            errors.append(
+                f"Pod toleration {tol!r} is not permitted by "
+                f"namespace annotation {_TOLERATIONS_KEY!r}"
+            )
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -638,5 +736,8 @@ def validate_pod(
 
     # Apply NFS volume constraint (annotation-driven, missing annotation = deny all NFS)
     all_errors.extend(_validate_nfs_volumes(pod_spec, namespace_annotations))
+
+    # Apply toleration allowlist (annotation-driven, missing annotation = no restriction)
+    all_errors.extend(_validate_tolerations(pod_spec, namespace_annotations))
 
     return ValidationResult(allowed=len(all_errors) == 0, errors=all_errors)

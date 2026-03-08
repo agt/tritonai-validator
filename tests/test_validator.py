@@ -1212,3 +1212,124 @@ class TestAllowedNfsVolumes:
             ],
         )
         assert validate_pod(anns, spec).allowed is True
+
+
+# ---------------------------------------------------------------------------
+# Toleration allowlist constraint
+# ---------------------------------------------------------------------------
+
+_TOL_ANNOTATIONS_BASE = {"sc.dsmlp.ucsd.edu/runAsUser": "1000"}
+_TOL_KEY = "sc.dsmlp.ucsd.edu/tolerations"
+
+
+def _tol_spec(*tolerations: dict) -> dict:
+    spec = _pod(
+        pod_sc={"runAsNonRoot": True},
+        containers=[_container(sc={"runAsUser": 1000})],
+    )
+    spec["tolerations"] = list(tolerations)
+    return spec
+
+
+class TestValidateTolerations:
+
+    # annotation absent → no restriction
+    def test_no_annotation_permits_any_toleration(self):
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
+        result = validate_pod(_TOL_ANNOTATIONS_BASE, _tol_spec(tol))
+        assert result.allowed is True
+
+    def test_no_annotation_permits_no_tolerations(self):
+        result = validate_pod(_TOL_ANNOTATIONS_BASE, _pod(pod_sc={"runAsNonRoot": True},
+                                                          containers=[_container(sc={"runAsUser": 1000})]))
+        assert result.allowed is True
+
+    # exact match
+    def test_exact_equal_toleration_allowed(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
+        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+
+    def test_exact_exists_toleration_rejected_by_non_wildcard_value(self):
+        """Exists toleration does not match a non-'*' value pattern."""
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Exists", "effect": "NoSchedule"}
+        result = validate_pod(anns, _tol_spec(tol))
+        assert result.allowed is False
+        assert "toleration" in result.message.lower()
+
+    # wildcard value "*" matches both Equal and Exists
+    def test_wildcard_value_permits_equal_toleration(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=*:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai-dev", "effect": "NoSchedule"}
+        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+
+    def test_wildcard_value_permits_exists_toleration(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=*:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Exists", "effect": "NoSchedule"}
+        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+
+    # fnmatch glob in value (non-"*" pattern)
+    def test_glob_value_pattern_matches(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai*:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai-dev", "effect": "NoSchedule"}
+        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+
+    def test_glob_value_pattern_no_match(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai*:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "glean-node", "effect": "NoSchedule"}
+        result = validate_pod(anns, _tol_spec(tol))
+        assert result.allowed is False
+
+    # fnmatch glob in key
+    def test_glob_key_pattern_matches(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-*=its-ai:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
+        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+
+    # fnmatch glob in effect
+    def test_glob_effect_pattern_matches(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:No*"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
+        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+
+    def test_effect_mismatch_rejected(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
+        tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoExecute"}
+        result = validate_pod(anns, _tol_spec(tol))
+        assert result.allowed is False
+
+    # multiple permitted entries (OR semantics)
+    def test_multiple_permitted_entries_covers_different_tolerations(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule,glean-node=*:NoExecute"}
+        tol1 = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
+        tol2 = {"key": "glean-node", "operator": "Exists", "effect": "NoExecute"}
+        assert validate_pod(anns, _tol_spec(tol1, tol2)).allowed is True
+
+    def test_one_of_two_tolerations_rejected(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
+        tol1 = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
+        tol2 = {"key": "other", "operator": "Equal", "value": "x", "effect": "NoSchedule"}
+        result = validate_pod(anns, _tol_spec(tol1, tol2))
+        assert result.allowed is False
+        assert "other" in result.message
+
+    # empty / absent tolerations always pass
+    def test_empty_tolerations_list_always_ok(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
+        spec["tolerations"] = []
+        assert validate_pod(anns, spec).allowed is True
+
+    def test_absent_tolerations_always_ok(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
+        assert validate_pod(anns, spec).allowed is True
+
+    # malformed annotation
+    def test_malformed_annotation_rejects_pod(self):
+        anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "no-colon-here"}
+        tol = {"key": "x", "operator": "Equal", "value": "y", "effect": "NoSchedule"}
+        result = validate_pod(anns, _tol_spec(tol))
+        assert result.allowed is False
+        assert "malformed" in result.message.lower()
