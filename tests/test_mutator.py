@@ -441,6 +441,97 @@ class TestMultipleConstraintMutations:
 
 
 # ---------------------------------------------------------------------------
+# tolerations — optional default injection
+# ---------------------------------------------------------------------------
+
+TOLERATION_ANNOTATION = "sc.dsmlp.ucsd.edu/default.tolerations"
+
+
+class TestMutateTolerations:
+
+    def test_single_equal_toleration_injected(self):
+        """Single 'key=value:effect' token → Equal operator toleration added."""
+        annotations = {TOLERATION_ANNOTATION: "node-type=its-ai:NoSchedule"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod(annotations, spec)
+        p = _patch_at(patches, "/spec/tolerations")
+        assert p is not None
+        assert p["op"] == "add"
+        assert p["value"] == [{"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}]
+
+    def test_single_exists_toleration_injected(self):
+        """Value '*' → Exists operator, no value field."""
+        annotations = {TOLERATION_ANNOTATION: "glean-node=*:NoExecute"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod(annotations, spec)
+        p = _patch_at(patches, "/spec/tolerations")
+        assert p is not None
+        assert p["value"] == [{"key": "glean-node", "operator": "Exists", "effect": "NoExecute"}]
+        assert "value" not in p["value"][0]
+
+    def test_multiple_tolerations_injected(self):
+        """Comma-separated list produces multiple Toleration entries in order."""
+        annotations = {TOLERATION_ANNOTATION: "node-type=its-ai:NoSchedule,glean-node=*:NoExecute"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod(annotations, spec)
+        p = _patch_at(patches, "/spec/tolerations")
+        assert p is not None
+        assert p["value"] == [
+            {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"},
+            {"key": "glean-node", "operator": "Exists", "effect": "NoExecute"},
+        ]
+
+    def test_no_injection_when_tolerations_already_present(self):
+        """Existing non-empty tolerations are left untouched."""
+        annotations = {TOLERATION_ANNOTATION: "node-type=its-ai:NoSchedule"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec["tolerations"] = [{"key": "other", "operator": "Exists", "effect": "NoSchedule"}]
+        patches = mutate_pod(annotations, spec)
+        assert _patch_at(patches, "/spec/tolerations") is None
+
+    def test_injection_when_tolerations_empty_list(self):
+        """Empty tolerations list is treated the same as absent — defaults injected."""
+        annotations = {TOLERATION_ANNOTATION: "node-type=its-ai:NoSchedule"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec["tolerations"] = []
+        patches = mutate_pod(annotations, spec)
+        p = _patch_at(patches, "/spec/tolerations")
+        assert p is not None
+
+    def test_no_injection_when_annotation_absent(self):
+        """No default.tolerations annotation → no toleration patch."""
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod({}, spec)
+        assert _patch_at(patches, "/spec/tolerations") is None
+
+    def test_malformed_annotation_logs_warning_and_skips(self, caplog):
+        """Unparseable annotation value logs a warning and produces no patch."""
+        annotations = {TOLERATION_ANNOTATION: "bad-format-no-colon"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod(annotations, spec)
+        assert _patch_at(patches, "/spec/tolerations") is None
+        assert "cannot parse" in caplog.text.lower()
+
+    def test_malformed_missing_equals_logs_warning(self, caplog):
+        """Token missing '=' in the key/value part logs a warning."""
+        annotations = {TOLERATION_ANNOTATION: "no-equals:NoSchedule"}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod(annotations, spec)
+        assert _patch_at(patches, "/spec/tolerations") is None
+        assert "cannot parse" in caplog.text.lower()
+
+    def test_whitespace_trimmed_from_tokens(self):
+        """Leading/trailing whitespace in tokens and fields is trimmed."""
+        annotations = {TOLERATION_ANNOTATION: " node-type=its-ai : NoSchedule "}
+        spec = _pod(pod_sc={"runAsNonRoot": True})
+        patches = mutate_pod(annotations, spec)
+        p = _patch_at(patches, "/spec/tolerations")
+        assert p is not None
+        assert p["value"][0]["effect"] == "NoSchedule"
+        assert p["value"][0]["key"] == "node-type"
+
+
+# ---------------------------------------------------------------------------
 # /mutate HTTP endpoint
 # ---------------------------------------------------------------------------
 

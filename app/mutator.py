@@ -25,6 +25,13 @@ for rejecting any values that violate policy.
      is absent.  Existing values (including False) are left untouched so the
      downstream validator can reject them.
 
+   tolerations (optional default injection)
+     If sc.dsmlp.ucsd.edu/default.tolerations is present on the namespace,
+     its value is parsed as a comma-separated list of "key=value:effect" tokens
+     and injected into pod.spec.tolerations only when that field is absent or
+     empty.  A value of "*" for the toleration value produces operator "Exists";
+     any other value produces operator "Equal".
+
 Returns a (possibly empty) list of RFC 6902 JSON Patch operations.  The caller
 base64-encodes the JSON-serialised list and returns it to the API server, which
 then re-runs the mutated pod through all registered ValidatingAdmissionWebhooks.
@@ -219,6 +226,76 @@ def _mutate_node_selector(
     })
 
 
+def _parse_default_tolerations(raw: str) -> list[dict[str, Any]]:
+    """Parse a comma-separated toleration string into a list of Toleration dicts.
+
+    Format: ``"key=value:effect[,key=value:effect,...]"``
+
+    * If *value* is the literal string ``"*"``, the resulting Toleration uses
+      operator ``"Exists"`` and omits the ``value`` field.
+    * Any other *value* produces operator ``"Equal"`` with the ``value`` field set.
+
+    Raises ``ValueError`` on malformed tokens.
+    """
+    result = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise ValueError(f"expected 'key=value:effect' format, got {token!r}")
+        kv_part, effect = token.rsplit(":", 1)
+        effect = effect.strip()
+        if "=" not in kv_part:
+            raise ValueError(f"expected 'key=value' before ':', got {kv_part!r}")
+        key, value = kv_part.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if value == "*":
+            result.append({"key": key, "operator": "Exists", "effect": effect})
+        else:
+            result.append({"key": key, "operator": "Equal", "value": value, "effect": effect})
+    if not result:
+        raise ValueError("no tolerations parsed from empty annotation value")
+    return result
+
+
+def _mutate_tolerations(
+    pod: dict[str, Any],
+    ns_annotations: dict[str, str],
+    patches: list[dict[str, Any]],
+) -> None:
+    """Inject default tolerations when the pod has none and the default annotation is set.
+
+    Only fires when ``sc.dsmlp.ucsd.edu/default.tolerations`` is present **and**
+    the pod's ``tolerations`` field is absent or an empty list.  Existing
+    tolerations (any non-empty list) are left untouched.
+    """
+    default_key = f"{DEFAULT_ANNOTATION_PREFIX}tolerations"
+    if default_key not in ns_annotations:
+        return
+
+    if pod.get("tolerations"):  # non-empty list → leave untouched
+        return
+
+    raw = ns_annotations[default_key].strip()
+    try:
+        tolerations = _parse_default_tolerations(raw)
+    except ValueError as exc:
+        logger.warning(
+            "Cannot parse default annotation %r=%r: %s; skipping toleration injection.",
+            default_key, raw, exc,
+        )
+        return
+
+    pod["tolerations"] = tolerations
+    patches.append({
+        "op": "add",
+        "path": "/spec/tolerations",
+        "value": tolerations,
+    })
+
+
 # Dispatch table: FieldBehavior → mutator function (excludes NODE_SELECTOR)
 _SC_MUTATORS = {
     FieldBehavior.REQUIRED_SCALAR: _mutate_required_scalar,
@@ -276,6 +353,9 @@ def _compute_mutations(
 
     # --- runAsNonRoot (hardcoded, always True, unconditional) ---
     _mutate_run_as_non_root(pod, patches)
+
+    # --- tolerations (optional default injection) ---
+    _mutate_tolerations(pod, namespace_annotations, patches)
 
     return pod, patches
 

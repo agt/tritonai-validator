@@ -191,3 +191,19 @@ update Mutator to set pod securityContext.runAsNonRoot=True if that field is emp
 # Update README and prompt log
 
 Update README.md's documentation and its Pod Security Standard comparison matrix to reflect recent changes.  Also update PROMPT_LOG.md to include any meaningful prompts not already there.
+
+# Default toleration injection (mutator)
+
+Add to the Mutator a new optional `sc.dsmlp.ucsd.edu/default.tolerations` namespace annotation which can contain a comma-separated list of Tolerations to be applied to the Pod spec. Defaults should be imposed only if the pod's toleration field is absent or empty.
+
+Each default toleration should be of the format "key=value:effect". If the "value" is the special value "*", the generated Toleration should use the "Exists" operator, otherwise "Equal".
+
+# Toleration allowlist (validator)
+
+Add to the Validator a new constraint `sc.dsmlp.ucsd.edu/tolerations` namespace annotation which, if present, is a comma-delimited list of permissible Tolerations.
+
+Each permitted-toleration entry should be of the format "key=value:effect".
+
+The Validator should compare all Tolerations in the pod spec against the permitted list. The permitted-toleration entries may utilize shell globs (fnmatch style) in any field.
+
+As a special case, a value of "*" should match any Pod spec value ("Equal" operator) as well as the value-less "Exists" operator. For example: `"sc.dsmlp.ucsd.edu/tolerations": "node-type=*:NoSchedule"` should permit a toleration with `operator: Exists` and `effect: NoSchedule`.

@@ -70,6 +70,8 @@ Two layers of checks:
    - Pod: `hostNetwork`/`hostPID`/`hostIPC` absent or false; `securityContext.sysctls` absent or empty; `securityContext.runAsNonRoot` true (REQUIRED_SCALAR semantics); volume types restricted to allowed set; NFS volumes checked against `allowedNfsVolumes` annotation; `prohibitedVolumeTypes` annotation narrows the allowed set and also blocks env/envFrom sources.
    - Containers/initContainers/ephemeralContainers: `allowPrivilegeEscalation` absent or false; `privileged` absent or false; `capabilities.add` absent/empty or `["NET_BIND_SERVICE"]` only; `procMount` absent/`""`/`"Default"`.
 
+3. **Toleration allowlist** (`sc.dsmlp.ucsd.edu/tolerations`): annotation-driven, handled outside `_FIELD_SPECS` like NFS volumes. Each pod toleration must match at least one `key=value:effect` entry (fnmatch globs supported in any field; `*` value also matches `Exists` operator). Annotation absent = no restriction.
+
 ### Mutator (`app/mutator.py`)
 
 `mutate_pod(ns_annotations, pod_spec) -> list[RFC6902 patches]`
@@ -80,6 +82,7 @@ Only injects missing values; never overwrites existing ones (the validator rejec
 - **OPTIONAL_SCALAR/OPTIONAL_LIST** fields: no mutation (absent is always valid).
 - **NODE_SELECTOR**: always removes `nodeName`; injects default `nodeSelector` only when none is present.
 - **runAsNonRoot** (unconditional): always sets `securityContext.runAsNonRoot = True` when absent.
+- **tolerations** (`sc.dsmlp.ucsd.edu/default.tolerations`): injects a list of `key=value:effect` tolerations into `spec.tolerations` only when that field is absent or empty. Value `*` produces `operator: Exists`; any other value produces `operator: Equal`.
 
 Default values come from `sc.dsmlp.ucsd.edu/default.<field>` namespace annotations. Missing or unparseable defaults are logged as warnings; other fields continue to be processed.
 
