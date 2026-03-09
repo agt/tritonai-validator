@@ -34,6 +34,7 @@ def _container(
     sc: dict | None = None,
     env: list | None = None,
     env_from: list | None = None,
+    ports: list | None = None,
 ) -> dict:
     c: dict = {"name": name}
     if sc is not None:
@@ -42,6 +43,8 @@ def _container(
         c["env"] = env
     if env_from is not None:
         c["envFrom"] = env_from
+    if ports is not None:
+        c["ports"] = ports
     return c
 
 
@@ -616,6 +619,48 @@ class TestHardcodedConstraints:
         result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
         assert result.allowed is False
         assert "debug" in result.message
+
+    # ------------------------------------------------------------------ #
+    # hostPort
+    # ------------------------------------------------------------------ #
+
+    def test_host_port_absent_ok(self):
+        c = _container(sc={"runAsUser": 1000}, ports=[{"containerPort": 8080}])
+        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+
+    def test_host_port_zero_ok(self):
+        c = _container(sc={"runAsUser": 1000}, ports=[{"containerPort": 8080, "hostPort": 0}])
+        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+
+    def test_host_port_set_rejected(self):
+        c = _container(sc={"runAsUser": 1000}, ports=[{"containerPort": 8080, "hostPort": 8080}])
+        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
+        assert result.allowed is False
+        assert "hostPort" in result.message
+        assert "8080" in result.message
+
+    def test_host_port_multiple_ports_only_offending_reported(self):
+        """Only the port with hostPort set should appear in the error."""
+        c = _container(sc={"runAsUser": 1000}, ports=[
+            {"containerPort": 8080},
+            {"containerPort": 9090, "hostPort": 9090},
+        ])
+        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
+        assert result.allowed is False
+        assert "9090" in result.message
+
+    def test_host_port_in_init_container_rejected(self):
+        main = _container(sc={"runAsUser": 1000})
+        init = _container("init", sc={"runAsUser": 1000}, ports=[{"containerPort": 80, "hostPort": 80}])
+        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(
+            pod_sc={"runAsNonRoot": True}, containers=[main], init_containers=[init]
+        ))
+        assert result.allowed is False
+        assert "init" in result.message
+        assert "hostPort" in result.message
+
+    def test_host_port_no_ports_section_ok(self):
+        assert validate_pod(_ALWAYS_ANNOTATIONS, _ALWAYS_SPEC_OK).allowed is True
 
 
 # ---------------------------------------------------------------------------

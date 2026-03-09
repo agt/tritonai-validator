@@ -313,6 +313,7 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
       - securityContext.privileged must be absent or false.
       - securityContext.capabilities.add must be absent, empty, or contain only NET_BIND_SERVICE.
       - securityContext.procMount must be absent, empty string, or "Default".
+      - ports[*].hostPort must be absent or 0.
 
     Volume type checking is handled separately by _validate_volume_types(), which also
     applies the sc.dsmlp.ucsd.edu/prohibitedVolumeTypes namespace annotation.
@@ -368,6 +369,14 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
                 f"Container {cname!r} securityContext.procMount must be absent or 'Default'; "
                 f"found {proc_mount!r}"
             )
+
+        for port in container.get("ports") or []:
+            host_port = port.get("hostPort")
+            if host_port is not None and host_port != 0:
+                errors.append(
+                    f"Container {cname!r} port {port.get('containerPort', '?')!r} "
+                    f"must not set hostPort; found hostPort={host_port!r}"
+                )
 
     return errors
 
