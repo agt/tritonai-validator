@@ -1,81 +1,19 @@
 
-## Important background info:
-- https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#what-are-admission-webhooks
-
-
-_Note (agt): this validator was built via Claude Code, with prompts as outlined in PROMPT_LOG.md.  I have reviewed the code and tests and am confident in its output, but welcome any/all review._
-
 # TritonAI Pod Security Admission Webhook
 
-A FastAPI-based Kubernetes Pod admission webhook with two components:
+A FastAPI-based Kubernetes Pod admission webhook which offers fine-grained control over workloads' security configuration whle minimizing modifications to published YAML or Helm files -- defaults and constraints are established through namespace Annotations.
 
-- **Mutating webhook** (`/mutate`) — fills in missing security-related fields with namespace-specific defaults before a pod is admitted.
-- **Validating webhook** (`/validate`) — rejects pods which violate either namespace-specific policies or a list of hardcoded rules aligned to [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
 
-Both webhooks handle **Pod** resources directly and also inspect the pod templates
-embedded in **Deployment**, **ReplicaSet**, **StatefulSet**, **DaemonSet**, **Job**, and **CronJob** objects.
-All other resource kinds are passed through without inspection.
+- **Mutating webhook** (`/mutate`) — called first by the API server to inject optional defaults for fields later inspected by the Validator.
 
-A note for UCSD: these TritonGPT/TritonAI webhooks use namespace annotations to establish desired policy and defaults for that namespace.  This is in contrast to `dsmlp-validator` and `dsmlp-mutator` which queries user/course settings from the SICad/awsed database.  Both sets of webhooks can operate simultaneously within the cluster, with namespace labels determining which is invoked.  In theory, a namespace could subject its pods to both regimes.
+- **Validating webhook** (`/validate`) — rejects pods which violate either namespace-specific policies or a list of hardcoded rules aligned to [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/).  For workload resources (Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects), namespace defaults are applied to the pod template spec via the mutator before validation so the validator sees the same (post-mutation) spec the API server would ultimately use.  The intent is to reject nonconforming workloads as early as possbile.
 
----
+Beyond controlling Pod `securityContext` fields (`runAsUser`, etc.), defaults/constraints on `nodeSelectors` and `tolerations` enable Pods to be directed towards specific node groups or excluded from them.
 
-## How It Works
+Finally, data accessible to Pods in the namespace may be constrained through limits on Volume types and allowable NFS servers/paths.
 
-### Mutating webhook (`/mutate`)
 
-Called first by the API server (prior to Validator.)  As a webhook, handles Pod resources only, but 
-is used internal to the Validator when processing Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
-
-The webook:
-
-1. Fetches `sc.dsmlp.ucsd.edu/default.*` annotations from the Pod's **namespace**.
-2. For **REQUIRED_SCALAR** fields (`runAsUser`, `runAsGroup`):
-   injects a pod-level `securityContext` default for any container that does not already
-   set the field.  Fields that are already set are **not modified**.
-3. For **OPTIONAL_SCALAR** (`fsGroup`) and **OPTIONAL_LIST** (`supplementalGroups`) fields:
-   no mutation is applied — absent is always acceptable; wrong values are left for the
-   validator to reject.
-4. For **NODE_SELECTOR** (`nodeLabel`): removes `spec.nodeName` unconditionally, and
-   injects the default `key=value` label as a new `spec.nodeSelector` only when the
-   pod specifies no `nodeSelector` at all.  Any existing `nodeSelector` is left untouched.
-5. **Unconditionally** sets `spec.securityContext.runAsNonRoot = true` when that field
-   is absent.  Existing values (including `false`) are left untouched so the validator
-   can reject them.
-6. For **tolerations** (`default.tolerations`): if the pod's `spec.tolerations` field is
-   absent or empty (Kubernetes-internal tolerations ignored), adds in the default toleration list from the annotation.
-   
-### Validating webhook (`/validate`)
-
-Called after mutation, enforces namespace-specific constraints along with a set of static rules.
-
-Handles Pod resources as well as the pod templates of workload resources:
-Deployment, ReplicaSet, StatefulSet, DaemonSet, Job, and CronJob objects.
-
-For workload resources, namespace defaults are applied to the pod template
-spec via the mutator before validation so the validator sees the same
-(post-mutation) spec the API server would ultimately use.  The intent is to reject nonconforming workloads as early as possbile.
-
-The webhook:
-
-1. Fetches `sc.dsmlp.ucsd.edu/*` annotations from the Pod's **namespace**.
-2. If **no** annotations are present → **reject** (policy must be explicit).
-3. Parses each annotation into a constraint set and validates the Pod spec.
-4. Applies **hardcoded security constraints** that are always enforced, regardless of annotations.
-5. If **any** constraint fails → **reject** with a descriptive message listing all failures.
-
----
-
-## Namespace Annotations
-
-Set security policy on a namespace by adding annotations prefixed `sc.dsmlp.ucsd.edu/`.
-
-For the most part, constraint annotations are paired with a corresponding default annotation to
-enable the mutating webhook to fill in missing values automatically.  (Defaults are also injected
-to satistfy hard-coded rules.)
-
-This behavior is intended to permit fine-grained control over workloads' security configuration without requiring modification of published YAML or Helm files.
-
+### Example Namespace Annotations:
 ```yaml
 apiVersion: v1
 kind: Namespace
@@ -100,176 +38,6 @@ metadata:
     sc.dsmlp.ucsd.edu/prohibitedVolumeTypes: "emptyDir,secret"
 ```
 
-Default annotations consulted only by the mutator, and still must satisfy the corresponding
-constraint.  (It is possible to set defaults which do not pass Validator checks.)
-
-If a default annotation is absent or unparseable, the mutator logs a warning
-and skips that field; the validator still enforces the constraint.
-
-### Constraint Value Syntax
-
-#### Numeric and boolean annotations
-
-Comma-separated tokens, matched with **OR** semantics (any one token matching is sufficient):
-
-| Token format | Example        | Meaning               |
-|-------------|----------------|-----------------------|
-| Exact        | `1000`         | value == 1000         |
-| Closed range | `2000-3000`    | 2000 ≤ value ≤ 3000   |
-| Greater than | `>5000000`     | value > 5,000,000     |
-| Less than    | `<500`         | value < 500           |
-| ≥            | `>=1000`       | value ≥ 1000          |
-| ≤            | `<=1000`       | value ≤ 1000          |
-| Boolean      | `true`/`false` | exact boolean match   |
-
-#### `sc.dsmlp.ucsd.edu/nodeLabel`
-
-Comma-separated `key=value` pairs, matched with **OR** semantics:
-
-| Token format | Example         | Meaning                                   |
-|-------------|-----------------|-------------------------------------------|
-| Key=value   | `partition=gpu` | nodeSelector must contain `partition: gpu` |
-
-Multiple tokens mean the pod may land on a node matching **any** of them:
-
-```
-sc.dsmlp.ucsd.edu/nodeLabel: "rack=b,rack=c"
-```
-
-#### `sc.dsmlp.ucsd.edu/tolerations` and `sc.dsmlp.ucsd.edu/default.tolerations`
-
-Comma-separated `key=value:effect` entries:
-
-| Token format | Example | Meaning |
-|---|---|---|
-| `key=value:effect` | `node-type=its-ai:NoSchedule` | Equal operator, exact value match |
-| `key=*:effect` | `node-type=*:NoSchedule` | Wildcard value — matches Equal (any value) **and** Exists (no value) |
-| `key=glob*:effect` | `node-type=its-ai*:NoSchedule` | fnmatch glob in value field |
-
-Globs (`fnmatch` style) may appear in **any** field (key, value, or effect).  The special value
-`*` additionally covers tolerations that use `operator: Exists` (which carry no `value` field).
-
----
-
-## Validation Behavior per Annotation
-
-### `sc.dsmlp.ucsd.edu/runAsUser`, `sc.dsmlp.ucsd.edu/runAsGroup`
-
-**Required field** — enforcement is strict:
-
-- If the **Pod-level** `securityContext` sets the field → it must match.
-- All **container/initContainer** `securityContext`s that set the field → must match.
-- If the Pod-level `securityContext` is **absent** (or does not set the field), **every**
-  container and initContainer must supply the field and it must match.
-
-### `sc.dsmlp.ucsd.edu/fsGroup`
-
-**Optional field** — only pod-level:
-
-- Absent from pod `securityContext` → constraint satisfied (no requirement to set it).
-- Present → must match the annotation constraint.
-
-### `sc.dsmlp.ucsd.edu/supplementalGroups`
-
-**Optional list** — only pod-level:
-
-- Absent or empty → constraint satisfied.
-- Present → **every element** must satisfy at least one constraint token; that is the Pod spec must specify groups which are equal to or a subset of the constraint.
-
-### `sc.dsmlp.ucsd.edu/nodeLabel`
-
-**Node placement** — two rules are enforced simultaneously:
-
-- `pod.spec.nodeName` must be **absent**.  Setting `nodeName` bypasses the scheduler and
-  the `nodeSelector` check entirely, so it is never permitted when this annotation is present.
-  
-- `pod.spec.nodeSelector` must contain at least one entry matching **any** of the
-  annotation's `key=value` tokens.  Additional `nodeSelector` entries beyond the matched
-  one are permitted.
-
-Example — namespace annotation `"rack=b,rack=c"` would:
-
-| Pod nodeSelector              | Result  | Reason                             |
-|-------------------------------|---------|------------------------------------|
-| `{rack: b}`                   | Allowed | matches `rack=b`                   |
-| `{rack: c, zone: us-west-2}`  | Allowed | matches `rack=c`; extra key is OK  |
-| `{rack: a}`                   | Rejected | no token matches                  |
-| `{}` or absent                | Rejected | no token matches                  |
-| any spec with `nodeName` set  | Rejected | `nodeName` bypass is forbidden     |
-
-### `sc.dsmlp.ucsd.edu/tolerations`
-
-**Toleration allowlist** — controls which tolerations pods may declare:
-
-- If the annotation is **absent**, there is no restriction — pods may include any tolerations (or none).
-- If the annotation is **present**, every toleration on the pod must be covered by at least one
-  permitted entry in the comma-separated list.
-- Each permitted entry is `key=value:effect`.  Any field may contain **fnmatch-style globs**.
-- A entry's value element set to `*` matches any `operator: Equals` toleration as well as tolerations using `operator: Exists` (which have no `value` field).
-- Pods with no tolerations always pass regardless of this annotation.
-
-```
-sc.dsmlp.ucsd.edu/tolerations: "node-type=its-ai*:NoSchedule,glean-node=*:NoExecute"
-```
-
-| Pod toleration | Annotation value | Result | Reason |
-|---|---|---|---|
-| `key=node-type, op=Equal, value=its-ai-dev, effect=NoSchedule` | `node-type=its-ai*:NoSchedule` | Allowed | glob `its-ai*` matches `its-ai-dev` |
-| `key=node-type, op=Exists, effect=NoSchedule` | `node-type=*:NoSchedule` | Allowed | `*` covers Exists operator |
-| `key=node-type, op=Exists, effect=NoSchedule` | `node-type=its-ai:NoSchedule` | Rejected | non-`*` value pattern never matches Exists |
-| `key=other, op=Equal, value=x, effect=NoSchedule` | `node-type=its-ai:NoSchedule` | Rejected | key does not match |
-
-#### Default toleration injection (`sc.dsmlp.ucsd.edu/default.tolerations`)
-
-Used by the **mutator** only.  Same `key=value:effect` format (no globs — these are concrete values).
-
-- Injected into `spec.tolerations` only when the pod's toleration list is **absent or empty**. (Kubernetes-internal tolerations ignored when deciding whether to inject.)
-- If an entry's `value` is `*`, the injected toleration uses `operator: Exists` (no `value` field).
-- Otherwise the injected toleration uses `operator: Equal`.
-
-```
-sc.dsmlp.ucsd.edu/default.tolerations: "node-type=its-ai:NoSchedule,glean-node=*:NoExecute"
-```
-
-### `sc.dsmlp.ucsd.edu/allowedNfsVolumes`
-
-**NFS volume allowlist** — controls which NFS mounts a pod may use:
-
-- If the annotation is **absent or empty**, no NFS volumes are permitted.
-- If NFS volumes are present, **each** must match at least one entry in the comma-separated
-  allowlist.
-- A match is either an exact `server:/path` string or a **shell glob** (fnmatch) pattern,
-  e.g. `its-dsmlp-fs0[1-9]:/export/workspaces/*FA25`.
-
-```
-sc.dsmlp.ucsd.edu/allowedNfsVolumes: "10.20.5.3:/export/data,itsnfs:/scratch,its-dsmlp-fs0[1-9]:/export/workspaces/*"
-```
-
-A pod with no NFS volumes is always accepted regardless of this annotation.
-
-### `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`
-
-**Volume type restriction** — removes one or more types from the hardcoded permitted set and
-blocks the corresponding env/envFrom data sources in all containers:
-
-- Value is a comma-separated list of volume type names (e.g. `"emptyDir,secret"`).
-- Each named type is removed from the base permitted set for pods in this namespace.
-- A missing or empty annotation means no additional restrictions.
-- Type names not present in the base permitted set are ignored (logged as a warning).
-
-When a type is prohibited, the following container env/envFrom sources are also blocked
-across all `containers`, `initContainers`, and `ephemeralContainers`:
-
-| Prohibited type | Blocked env source | Blocked envFrom source |
-|---|---|---|
-| `configMap` | `env[].valueFrom.configMapKeyRef` | `envFrom[].configMapRef` |
-| `secret` | `env[].valueFrom.secretKeyRef` | `envFrom[].secretRef` |
-| `downwardAPI` | `env[].valueFrom.fieldRef`, `env[].valueFrom.resourceFieldRef` | — |
-
-```
-sc.dsmlp.ucsd.edu/prohibitedVolumeTypes: "emptyDir,secret"
-```
-
 ---
 
 ## Hardcoded Security Constraints
@@ -284,7 +52,7 @@ Validation webhook.  They are not configurable via namespace annotations.
 | `hostNetwork` | absent or `false` | hardcoded |
 | `hostPID` | absent or `false` | hardcoded |
 | `hostIPC` | absent or `false` | hardcoded |
-| `securityContext.runAsNonRoot` | `true` | REQUIRED_SCALAR — pod-level `true` covers all containers; if absent at pod level every container must individually set it to `true` |
+| `securityContext.runAsNonRoot` | `true` | hardcoded |
 | `securityContext.sysctls` | absent or `[]` | hardcoded |
 | `volumes[*]` type | `configMap`, `downwardAPI`, `emptyDir`, `image`, `nfs`, `persistentVolumeClaim`, `projected`, `secret`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate` (base set; further restricted by `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`) | hardcoded |
 
@@ -300,40 +68,184 @@ Validation webhook.  They are not configurable via namespace annotations.
 
 Any violation is reported as a validation error and the pod is rejected.
 
----
-
-## Pod Security Standards Comparison
-
-The table below maps this webhook's hardcoded constraints against the Kubernetes
-[Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
-(PSS) **Baseline** and **Restricted** profiles.
-
-| Control | PSS Baseline | PSS Restricted | This webhook |
-|---------|:---:|:---:|---|
-| `hostNetwork` / `hostPID` / `hostIPC` | ✗ disallowed | ✗ disallowed | **Enforced** — hardcoded; must be absent or `false` |
-| `hostProcess` (Windows) | ✗ disallowed | ✗ disallowed | Not enforced |
-| `privileged` | ✗ disallowed | ✗ disallowed | **Enforced** — must be absent or `false` |
-| Capabilities (`add`) | Baseline allowlist | Drop ALL; only NET\_BIND\_SERVICE | **Enforced** — only `NET_BIND_SERVICE` permitted |
-| Capabilities (`drop`) | — | Must include `ALL` | Not enforced |
-| HostPath volumes | ✗ disallowed | ✗ disallowed | **Enforced** — via allowed volume type set |
-| Volume types | — | Restricted set | **Enforced** — hardcoded allowed set (further narrowable by annotation) |
-| Host ports | ✗ disallowed | ✗ disallowed | **Enforced** — hardcoded: `hostPort` must be absent or `0` |
-| `/proc` mount type | Default only | Default only | **Enforced** — must be absent, `""`, or `"Default"` |
-| Sysctls | Safe sysctls only | Safe sysctls only | **Enforced** — all sysctls disallowed |
-| AppArmor | No custom profiles | No custom profiles | Not enforced |
-| SELinux options | No custom options | No custom options | Not enforced |
-| Seccomp | Unconfined disallowed | RuntimeDefault or Localhost | Not enforced |
-| `allowPrivilegeEscalation` | — | ✗ disallowed | **Enforced** — must be absent or `false` |
-| `runAsNonRoot` | — | ✓ required | **Enforced** — hardcoded; must be `true` (pod-level or per-container); mutator injects `true` when absent |
-| Run as non-root UID (runAsUser ≠ 0) | — | Recommended | Not checked directly (`runAsNonRoot=true` covers the intent) |
-| Non-root supplemental groups | — | Recommended | Not enforced |
-
-**Summary:** the hardcoded constraints satisfy every control in the PSS **Restricted**
-profile that is expressible at the pod/container securityContext level, except for
-`capabilities.drop ALL` (but .add is restricted), seccomp, AppArmor, SELinux, hostProcess (Windows-only), and host-ports
-checks, which are not currently enforced.
 
 ---
+
+## Optional Defaults and Constraints
+
+### `sc.dsmlp.ucsd.edu/runAsUser` and `sc.dsmlp.ucsd.edu/default.runAsUser`; `sc.dsmlp.ucsd.edu/runAsGroup` and `sc.dsmlp.ucsd.edu/default.runAsGroup`
+
+_Mutator_:  If any Container-level `securityContext` is missing runAsUser/runAsGroup, and the Pod-level `securityContext` also lacks the value (or securityContext is absent), insert the default value at the Pod level.
+
+_Validator_: If the **Pod-level** `securityContext` sets the field, it must match.  All **container** `securityContext`s that set the field must match.  If the Pod-level `securityContext` is **absent** (or does not set the field), **every** container must supply the field and it must match.
+
+Validator accepts a comma-separated list of tokens forming a `ConstraintSet` with OR semantics. The supported token forms for `runAsUser` and `runAsGroup` are:
+
+| Token | Example | Matches |
+|---|---|---|
+| Exact | `1000` | only 1000 |
+| Range | `2000-3000` | 2000 ≤ x ≤ 3000 |
+| Greater-than | `>5000000` | x > 5000000 |
+| Less-than | `<500` | x < 500 |
+| Greater-or-equal | `>=1000` | x ≥ 1000 |
+| Less-or-equal | `<=1000` | x ≤ 1000 |
+
+
+``` sc.dsmlp.ucsd.edu/runAsUser: "1000,2000-3000,>5000000" ```produces four constraints joined by OR — a user ID satisfies the annotation if it matches **any** of them. The same parser is shared by `runAsUser`, `runAsGroup`, `fsGroup`, and `supplementalGroups`.
+
+
+### `sc.dsmlp.ucsd.edu/fsGroup`
+
+_Mutator_: If default provided, and Pod security context does not specify fsGroup, inject default value into Pod.
+
+_Validator_: If present, must match the annotation constraint value.  Validator accepts a `ConstraintSet` as with `runAsUser` using the same token logic.
+
+### `sc.dsmlp.ucsd.edu/supplementalGroups` and `sc.dsmlp.ucsd.edu/default.supplementalGroups`
+
+_Mutator_: If comma-separated default list is provided, and Pod security context does not specify `supplementalGroups`, inject defaults.
+
+_Validator_: If present,  **every element** in Pod's `supplementalGroups` list must be explicitly permitted. Validator accepts a `ConstraintSet` comma-separated list as with `runAsUser` using the same token logic.
+
+
+### `sc.dsmlp.ucsd.edu/nodeLabel`
+
+_Mutator_: If default provided, and Pod does not specify nodeSelector(s), inject default list.
+
+_Validator_:   `pod.spec.nodeSelector` must contain at least one entry matching **any** of the
+  annotation's `key=value` tokens.  **Additionally**, ensures `pod.spec.nodeName` is **absent**.  _(Setting `nodeName` bypasses the scheduler and the `nodeSelector` check entirely, so it is never permitted when this annotation is present.)_
+
+
+Example — namespace annotation `"rack=b,rack=c"` would:
+
+| Pod nodeSelector              | Result  | Reason                             |
+|-------------------------------|---------|------------------------------------|
+| `{rack: b}`                   | Allowed | matches `rack=b`                   |
+| `{rack: c, zone: us-west-2}`  | Allowed | matches `rack=c`; extra key is OK  |
+| `{rack: a}`                   | Rejected | no token matches                  |
+| `{}` or absent                | Rejected | no token matches                  |
+| any spec with `nodeName` set  | Rejected | `nodeName` bypass is forbidden     |
+
+
+
+### `sc.dsmlp.ucsd.edu/allowedNfsVolumes`
+
+_Validator_: If the annotation is **absent or empty**, no NFS volumes are permitted. If NFS volumes are present, **each** must match at least one entry in the comma-separated allowlist.
+
+A match is either an exact `server:/path` string or a **shell glob** (fnmatch) pattern,
+  e.g. `its-dsmlp-fs0[1-9]:/export/workspaces/*FA25`.
+
+```
+sc.dsmlp.ucsd.edu/allowedNfsVolumes: "10.20.5.3:/export/data,itsnfs:/scratch,its-dsmlp-fs0[1-9]:/export/workspaces/*"
+```
+
+A pod with no NFS volumes is always accepted regardless of this annotation.
+
+### `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`
+
+_Validator_: By default, the Validator allows use of the following Volume types:     "configMap",
+    "downwardAPI",
+    "emptyDir",
+    "image",
+    "nfs",
+    "persistentVolumeClaim",
+    "secret",
+    "serviceAccountToken",
+    "clusterTrustBundle",
+    "podCertificate",
+    "projected"
+
+If present, `prohibitedVolumeTypes` removes one or more types from this list.
+
+The following container env/envFrom sources are also blocked
+across all `containers`, `initContainers`, and `ephemeralContainers` when their corresponding Volume type is disabled:
+
+| Prohibited type | Blocked env source | Blocked envFrom source |
+|---|---|---|
+| `configMap` | `env[].valueFrom.configMapKeyRef` | `envFrom[].configMapRef` |
+| `secret` | `env[].valueFrom.secretKeyRef` | `envFrom[].secretRef` |
+| `downwardAPI` | `env[].valueFrom.fieldRef`, `env[].valueFrom.resourceFieldRef` | — |
+
+```
+sc.dsmlp.ucsd.edu/prohibitedVolumeTypes: "emptyDir,secret"
+```
+
+### `sc.dsmlp.ucsd.edu/tolerations` and `sc.dsmlp.ucsd.edu/default.tolerations`
+
+_Mutator_: Injects a list of `key=value:effect` defaults into `spec.tolerations` only when the pod's toleration list is **absent or empty**. (Kubernetes-internal tolerations ignored when deciding whether to inject.) If an entry's `value` is `*`, the injected toleration uses `operator: Exists` (no `value` field); otherwise the injected toleration uses `operator: Equal` and the supplied value.
+
+_Validator_: Ensures every pod spec Toleration falls within the list of comma-separated `key=value:effect` tokens.  
+
+Globs (`fnmatch` style) may appear in **any** field (key, value, or effect).  The special value `*` additionally covers tolerations that use `operator: Exists` (which carry no `value` field).
+
+| Token format | Example | Meaning |
+|---|---|---|
+| `key=value:effect` | `node-type=its-ai:NoSchedule` | Equal operator, exact value match |
+| `key=*:effect` | `node-type=*:NoSchedule` | Wildcard value — matches Equal (any value) **and** Exists (no value) |
+| `key=glob*:effect` | `node-type=its-ai*:NoSchedule` | fnmatch glob in value field |
+
+
+
+
+
+---
+
+
+## Pod Security Standards Compliance Analysis
+
+This section maps the webhook's hardcoded constraints and configurable namespace annotations against the Kubernetes [`baseline`](https://kubernetes.io/docs/concepts/security/pod-security-standards/#baseline) and [`restricted`](https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted) Pod Security Standards.
+
+Note: the Windows-only `hostProcess` control has been excluded from the following table. 
+
+### Legend
+
+| Symbol | Meaning |
+|--------|---------|
+| ✅ Enforced | Hardcoded; always applied regardless of namespace annotations |
+| ✅ Stricter | Webhook enforces a tighter rule than the standard requires (hardcoded) |
+| ⚙️ Configurable | Compliance depends on how the namespace annotation is set; not guaranteed by default |
+| ⚠️ Partial | Standard is partially addressed but a gap remains that no current configuration can close |
+| ❌ Not enforced | Webhook does not check this control at all |
+
+---
+
+
+### Baseline Policy
+
+| Control | Restricted fields | Standard allows | Webhook status | Notes |
+|---------|------------------|-----------------|----------------|-------|
+| Host Namespaces | `spec.hostNetwork`, `spec.hostPID`, `spec.hostIPC` | `undefined/nil`, `false` | ✅ Enforced | Hardcoded: each must be absent or `false`. |
+| Privileged Containers | `spec.containers[*].securityContext.privileged`, init/ephemeral containers | `undefined/nil`, `false` | ✅ Enforced | Hardcoded: `privileged` must be absent or `false`. |
+| Capabilities (`add`) | `spec.containers[*].securityContext.capabilities.add`, init/ephemeral containers | `undefined/nil`, or one of 14 named capabilities | ✅ Stricter | Only `NET_BIND_SERVICE` may appear in `capabilities.add`. Baseline permits 13 additional capabilities (e.g. `CHOWN`, `KILL`, `SETUID`); the webhook rejects them all. `capabilities.drop` is not checked (required only by Restricted). |
+| HostPath Volumes | `spec.volumes[*].hostPath` | `undefined/nil` | ✅ Enforced | `hostPath` is absent from the hardcoded allowed volume-type set; hostPath volumes are always rejected. |
+| Host Ports | `spec.containers[*].ports[*].hostPort`, init/ephemeral containers | `undefined/nil`, `0` | ✅ Enforced | Hardcoded: `hostPort` must be absent or `0` across all container types. |
+| Host Probes / Lifecycle Hooks (v1.34+) | `httpGet.host` and `tcpSocket.host` on liveness/readiness/startup probes and lifecycle hooks | `undefined/nil`, `""` | ❌ Not enforced | Probe and lifecycle hook `host` fields are not inspected. |
+| `/proc` Mount Type | `spec.containers[*].securityContext.procMount`, init/ephemeral containers | `undefined/nil`, `Default` | ✅ Enforced | Hardcoded: `procMount` must be absent, `""`, or `"Default"`. |
+| Sysctls | `spec.securityContext.sysctls[*].name` | `undefined/nil`, or a specific set of "safe" sysctls (`kernel.shm_rmid_forced`, several `net.ipv4.*`) | ✅ Stricter | All sysctls are forbidden (hardcoded: `sysctls` must be absent or `[]`). This is more restrictive than Baseline, which permits the safe sysctl subset. |
+| AppArmor | `spec.securityContext.appArmorProfile.type`, `spec.containers[*].securityContext.appArmorProfile.type`, init/ephemeral containers; `metadata.annotations["container.apparmor.security.beta.kubernetes.io/*"]` | `undefined/nil`, `RuntimeDefault`, `Localhost` | ❌ Not enforced | AppArmor profile type is not checked; `Unconfined` or arbitrary custom profiles are not blocked. |
+| SELinux | `seLinuxOptions.type` (pod & all containers); `seLinuxOptions.user`, `seLinuxOptions.role` (pod & all containers) | type: `undefined/""`, `container_t`, `container_init_t`, `container_kvm_t`, `container_engine_t`; user/role: `undefined/""` | ❌ Not enforced | SELinux type, user, and role fields are not inspected. |
+
+| Seccomp | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | `undefined/nil`, `RuntimeDefault`, `Localhost` (i.e. `Unconfined` is disallowed) | ❌ Not enforced | Seccomp profile type is not inspected; `Unconfined` is not blocked. |
+
+
+---
+
+### Restricted Policy
+
+Restricted is cumulative — it includes all Baseline controls above, plus the following.
+
+| Control | Restricted fields | Standard requires | Webhook status | Notes |
+|---------|------------------|-------------------|----------------|-------|
+| *(all Baseline controls)* | — | *(see table above)* | *(as above)* | — |
+| Volume Types | `spec.volumes[*]` | Only `configMap`, `csi`, `downwardAPI`, `emptyDir`, `ephemeral`, `persistentVolumeClaim`, `projected`, `secret` | ⚙️ Configurable  | The hardcoded allowed set includes extra types not permitted by Restricted: `nfs`, `image`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate`. These can be excluded using `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`, reducing the effective set to `configMap`, `downwardAPI`, `emptyDir`, `persistentVolumeClaim`, `projected`, `secret`. However, `csi` and `ephemeral` — which Restricted allows — are not in the webhook's base set and cannot be added via annotation, so pods requiring those types will always be rejected. |
+| Privilege Escalation | `spec.containers[*].securityContext.allowPrivilegeEscalation`, init/ephemeral containers | Must be explicitly `false` | ⚠️ Partial | The webhook rejects any value other than `false` (hardcoded), but it also accepts the field being absent (treated as `false` by k8s API) |
+| Running as Non-root (`runAsNonRoot`) | `spec.securityContext.runAsNonRoot`, `spec.containers[*].securityContext.runAsNonRoot`, init/ephemeral containers | `true` at pod or container level | ✅ Enforced | Hardcoded: `runAsNonRoot` must be `true` at pod level or on every container individually. The mutator unconditionally injects `true` when the field is absent. |
+| Running as Non-root user (`runAsUser != 0`) | `spec.securityContext.runAsUser`, `spec.containers[*].securityContext.runAsUser`, init/ephemeral containers | Any non-zero value, or `undefined/null` | ⚙️ Configurable | The webhook enforces `runAsUser` through `sc.dsmlp.ucsd.edu/runAsUser`. Setting that annotation to `">0"` (or any constraint that excludes `0`) satisfies this control. There is no hardcoded default preventing UID 0; compliance depends entirely on the namespace annotation. |
+| Seccomp (Restricted) | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | Must be `RuntimeDefault` or `Localhost` (absence is not permitted) | ❌ Not enforced | Seccomp profile type is not inspected. Under Restricted, omitting the field is a violation; the webhook cannot enforce this without new logic. |
+| Capabilities (`drop ALL`) | `spec.containers[*].securityContext.capabilities.drop`, init/ephemeral containers | Must include `ALL` |  ✅ Equivalent | `capabilities.drop` is not checked. The webhook instead validates `capabilities.add` (only `NET_BIND_SERVICE` permitted). |
+
+---
+
+# Development Notes
 
 ## Running Locally
 
@@ -429,71 +341,8 @@ kubectl apply -f deploy/webhook.yaml
 
 ---
 
-## Pod Security Standards Compliance Analysis
 
-This section maps the webhook's hardcoded constraints and configurable namespace annotations against the Kubernetes [`baseline`](https://kubernetes.io/docs/concepts/security/pod-security-standards/#baseline) and [`restricted`](https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted) Pod Security Standards, as documented in [KUBERNETES_SECURITY_STANDARDS.md](./KUBERNETES_SECURITY_STANDARDS.md).
+## References:
+- https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#what-are-admission-webhooks
 
-### Legend
 
-| Symbol | Meaning |
-|--------|---------|
-| ✅ Enforced | Hardcoded; always applied regardless of namespace annotations |
-| ✅ Stricter | Webhook enforces a tighter rule than the standard requires (hardcoded) |
-| ⚙️ Configurable | Compliance depends on how the namespace annotation is set; not guaranteed by default |
-| ⚠️ Partial | Standard is partially addressed but a gap remains that no current configuration can close |
-| ❌ Not enforced | Webhook does not check this control at all |
-
----
-
-### Baseline Policy
-
-| Control | Restricted fields | Standard allows | Webhook status | Notes |
-|---------|------------------|-----------------|----------------|-------|
-| HostProcess | `spec.securityContext.windowsOptions.hostProcess`, `spec.containers[*].securityContext.windowsOptions.hostProcess`, init/ephemeral containers | `undefined/nil`, `false` | ❌ Not enforced | Windows-only feature; these fields are not inspected. |
-| Host Namespaces | `spec.hostNetwork`, `spec.hostPID`, `spec.hostIPC` | `undefined/nil`, `false` | ✅ Enforced | Hardcoded: each must be absent or `false`. |
-| Privileged Containers | `spec.containers[*].securityContext.privileged`, init/ephemeral containers | `undefined/nil`, `false` | ✅ Enforced | Hardcoded: `privileged` must be absent or `false`. |
-| Capabilities (`add`) | `spec.containers[*].securityContext.capabilities.add`, init/ephemeral containers | `undefined/nil`, or one of 14 named capabilities | ✅ Stricter | Only `NET_BIND_SERVICE` may appear in `capabilities.add`. Baseline permits 13 additional capabilities (e.g. `CHOWN`, `KILL`, `SETUID`); the webhook rejects them all. `capabilities.drop` is not checked (required only by Restricted). |
-| HostPath Volumes | `spec.volumes[*].hostPath` | `undefined/nil` | ✅ Enforced | `hostPath` is absent from the hardcoded allowed volume-type set; hostPath volumes are always rejected. |
-| Host Ports | `spec.containers[*].ports[*].hostPort`, init/ephemeral containers | `undefined/nil`, `0` | ✅ Enforced | Hardcoded: `hostPort` must be absent or `0` across all container types. |
-| Host Probes / Lifecycle Hooks (v1.34+) | `httpGet.host` and `tcpSocket.host` on liveness/readiness/startup probes and lifecycle hooks | `undefined/nil`, `""` | ❌ Not enforced | Probe and lifecycle hook `host` fields are not inspected. |
-| AppArmor | `spec.securityContext.appArmorProfile.type`, `spec.containers[*].securityContext.appArmorProfile.type`, init/ephemeral containers; `metadata.annotations["container.apparmor.security.beta.kubernetes.io/*"]` | `undefined/nil`, `RuntimeDefault`, `Localhost` | ❌ Not enforced | AppArmor profile type is not checked; `Unconfined` or arbitrary custom profiles are not blocked. |
-| SELinux | `seLinuxOptions.type` (pod & all containers); `seLinuxOptions.user`, `seLinuxOptions.role` (pod & all containers) | type: `undefined/""`, `container_t`, `container_init_t`, `container_kvm_t`, `container_engine_t`; user/role: `undefined/""` | ❌ Not enforced | SELinux type, user, and role fields are not inspected. |
-| `/proc` Mount Type | `spec.containers[*].securityContext.procMount`, init/ephemeral containers | `undefined/nil`, `Default` | ✅ Enforced | Hardcoded: `procMount` must be absent, `""`, or `"Default"`. |
-| Seccomp | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | `undefined/nil`, `RuntimeDefault`, `Localhost` (i.e. `Unconfined` is disallowed) | ❌ Not enforced | Seccomp profile type is not inspected; `Unconfined` is not blocked. |
-| Sysctls | `spec.securityContext.sysctls[*].name` | `undefined/nil`, or a specific set of "safe" sysctls (`kernel.shm_rmid_forced`, several `net.ipv4.*`) | ✅ Stricter | All sysctls are forbidden (hardcoded: `sysctls` must be absent or `[]`). This is more restrictive than Baseline, which permits the safe sysctl subset. |
-
----
-
-### Restricted Policy
-
-Restricted is cumulative — it includes all Baseline controls above, plus the following.
-
-| Control | Restricted fields | Standard requires | Webhook status | Notes |
-|---------|------------------|-------------------|----------------|-------|
-| *(all Baseline controls)* | — | *(see table above)* | *(as above)* | — |
-| Volume Types | `spec.volumes[*]` | Only `configMap`, `csi`, `downwardAPI`, `emptyDir`, `ephemeral`, `persistentVolumeClaim`, `projected`, `secret` | ⚠️ Partial | The hardcoded allowed set includes extra types not permitted by Restricted: `nfs`, `image`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate`. These can be excluded using `sc.dsmlp.ucsd.edu/prohibitedVolumeTypes`, reducing the effective set to `configMap`, `downwardAPI`, `emptyDir`, `persistentVolumeClaim`, `projected`, `secret`. However, `csi` and `ephemeral` — which Restricted allows — are not in the webhook's base set and cannot be added via annotation, so pods requiring those types will always be rejected. |
-| Privilege Escalation | `spec.containers[*].securityContext.allowPrivilegeEscalation`, init/ephemeral containers | Must be explicitly `false` | ⚠️ Partial | The webhook rejects any value other than `false` (hardcoded), but it also accepts the field being absent. Restricted requires the field to be **explicitly set to `false`**; omitting it is not compliant. |
-| Running as Non-root (`runAsNonRoot`) | `spec.securityContext.runAsNonRoot`, `spec.containers[*].securityContext.runAsNonRoot`, init/ephemeral containers | `true` at pod or container level | ✅ Enforced | Hardcoded: `runAsNonRoot` must be `true` at pod level or on every container individually. The mutator unconditionally injects `true` when the field is absent. |
-| Running as Non-root user (`runAsUser != 0`) | `spec.securityContext.runAsUser`, `spec.containers[*].securityContext.runAsUser`, init/ephemeral containers | Any non-zero value, or `undefined/null` | ⚙️ Configurable | The webhook enforces `runAsUser` through `sc.dsmlp.ucsd.edu/runAsUser`. Setting that annotation to `">0"` (or any constraint that excludes `0`) satisfies this control. There is no hardcoded default preventing UID 0; compliance depends entirely on the namespace annotation. |
-| Seccomp (Restricted) | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | Must be `RuntimeDefault` or `Localhost` (absence is not permitted) | ❌ Not enforced | Seccomp profile type is not inspected. Under Restricted, omitting the field is a violation; the webhook cannot enforce this without new logic. |
-| Capabilities (`drop ALL`) | `spec.containers[*].securityContext.capabilities.drop`, init/ephemeral containers | Must include `ALL` | ❌ Not enforced | `capabilities.drop` is not checked. The webhook validates `capabilities.add` (only `NET_BIND_SERVICE` permitted) but does not require `drop: [ALL]`. |
-
----
-
-### Summary
-
-**Baseline:** The webhook natively satisfies seven Baseline controls — host namespaces, privileged containers, hostPath volumes, host ports, `/proc` mount type, sysctls, and capabilities — and is in fact stricter than Baseline on both capabilities and sysctls. The following Baseline controls are **not addressed** and would require new validation logic:
-
-- AppArmor and SELinux profile restrictions
-- Seccomp (blocking `Unconfined`)
-- Host probes and lifecycle hook `host` fields
-- HostProcess (Windows)
-
-**Restricted:** On top of the Baseline gaps, the following Restricted-specific controls are not met regardless of how namespace annotations are configured:
-
-- `allowPrivilegeEscalation` must be **explicitly** `false`; the webhook accepts absence.
-- Seccomp profile must be `RuntimeDefault` or `Localhost`; the webhook does not check it.
-- `capabilities.drop: [ALL]` is not enforced.
-- Volume type coverage cannot be made exactly Restricted-compliant: the `prohibitedVolumeTypes` annotation can remove the webhook's extra types, but `csi` and `ephemeral` (permitted by Restricted) are permanently blocked, making those workloads incompatible.
-
-The Restricted controls that **are** met are `runAsNonRoot` (hardcoded, always enforced) and the non-zero UID requirement (achievable by setting `sc.dsmlp.ucsd.edu/runAsUser: ">0"` on the namespace).
