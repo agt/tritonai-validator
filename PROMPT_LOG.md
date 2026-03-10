@@ -207,3 +207,30 @@ Each permitted-toleration entry should be of the format "key=value:effect".
 The Validator should compare all Tolerations in the pod spec against the permitted list. The permitted-toleration entries may utilize shell globs (fnmatch style) in any field.
 
 As a special case, a value of "*" should match any Pod spec value ("Equal" operator) as well as the value-less "Exists" operator. For example: `"sc.dsmlp.ucsd.edu/tolerations": "node-type=*:NoSchedule"` should permit a toleration with `operator: Exists` and `effect: NoSchedule`.
+
+# Supplemental groups list default
+
+The mutator should accept a list of default supplemental group IDs e.g. '1000,2022,3900' in addition to a single scalar.
+
+# Helm chart and deployment restructure
+
+Move the current deploy/*.yaml files into a new directory deploy/standalone/*.yaml; then within a new directory deploy/helm/, create a helm chart structure with templates based on the standalone yaml files. Ensure configuration points (e.g. kubernetes object names) are defined within a values.yaml file referenced by the generated templates.
+
+# Exempt node.kubernetes.io/* tolerations
+
+Update toleration handling to ignore 'node.kubernetes.io/*' Tolerations when deciding whether to inject defaults: if node.kubernetes.io/* are the only tolerations present, add in default.tolerations. Similarly, always allow 'node.kubernetes.io/*' tolerations within the Validator, even if they aren't specifically listed in the corresponding namespace annotation.
+
+# hostPort constraint
+
+Add a new hard-coded Validator constraint: no container's `ports` section may specify a 'hostPort' value. Update code, tests, and README.md to reflect the change.
+
+# Configurable annotation prefix and policy. marker
+
+Rebase code from upstream, then implement two changes:
+1) Change the constant annotation prefix 'sc.dsmlp.ucsd.edu' into one changeable via an environment variable ANNOTATION_PREFIX; default value if this variable is not set: 'tritonai-admission-webhook'.
+2) Prepend a marker 'policy.' to validator constraint annotations, e.g. 'tritonai-admission-webhook/policy.runAsUser'; this parallels use of 'default.' for the mutator defaults.
+Propagate this change to code as well as README.md and deployment artifacts.
+
+# Shared pod helper refactor
+
+Extract duplicated container/securityContext helper functions (_pod_sc, _all_containers, _container_sc, _container_name, _is_node_kubernetes_toleration) into a shared app/pod_helpers.py module imported by both the mutator and validator. Remove the redundant _CONTAINER_KINDS constant from the mutator and simplify _any_container_missing_field to use _all_containers().
