@@ -1,6 +1,6 @@
 # MutatingWebhookConfiguration — the API server calls /mutate for every Pod
 # CREATE/UPDATE before running the validating webhook.  The mutator patches
-# pods toward compliance using sc.dsmlp.ucsd.edu/default.* namespace
+# pods toward compliance using ../default.* namespace
 # annotations; the validating webhook then performs the final accept/reject.
 #
 # ORDERING NOTE: Kubernetes runs mutating webhooks before validating webhooks.
@@ -46,7 +46,7 @@ webhooks:
           {{- range .Values.webhook.excludedNamespaces }}
           - {{ . | quote }}
           {{- end }}
-      - key: mutate.{{ include "pod-security-webhook.fullname" . }}
+      - key: mutator.{{ .Values.annotationPrefix }}
         operator: In
         values:
           - enabled

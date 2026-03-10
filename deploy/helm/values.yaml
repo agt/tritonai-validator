@@ -11,6 +11,10 @@ nameOverride: "tgptinf-pod-security-webhook"
 # Leave empty to derive it from nameOverride / chart name.
 fullnameOverride: ""
 
+# Annotation prefix used for all webhook namespace annotations.
+# Must match the ANNOTATION_PREFIX env var set on the webhook Deployment.
+annotationPrefix: tritonai-admission-webhook
+
 replicaCount: 2
 
 image:

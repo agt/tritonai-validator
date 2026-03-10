@@ -44,7 +44,7 @@ webhooks:
           {{- range .Values.webhook.excludedNamespaces }}
           - {{ . | quote }}
           {{- end }}
-      - key: validate.{{ include "pod-security-webhook.fullname" . }}
+      - key: validator.{{ .Values.annotationPrefix }}
         operator: In
         values:
           - enabled
