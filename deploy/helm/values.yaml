@@ -6,23 +6,19 @@
 
 # Override the chart name used in resource names and labels.
 # Leave empty to use the chart name (pod-security-webhook).
-nameOverride: ""
+nameOverride: "tgptinf-pod-security-webhook"
 # Override the fully-qualified resource name (Deployment, Service, …).
 # Leave empty to derive it from nameOverride / chart name.
 fullnameOverride: ""
 
-# Annotation prefix used for all webhook namespace annotations.
-# Must match the ANNOTATION_PREFIX env var set on the webhook Deployment.
-annotationPrefix: tritonai-admission-webhook
-
 replicaCount: 2
 
 image:
-  repository: tritonai/pod-security-webhook
-  tag: latest
+  repository: ghcr.io/agt/tritonai-admission-webhook
+  tag: 20260308v2
   pullPolicy: Always
 
-logLevel: INFO
+logLevel: DEBUG
 
 resources:
   requests:
@@ -36,12 +32,7 @@ tls:
   # Base64-encoded CA certificate that signed the TLS cert presented by the
   # webhook server.  Required by both webhook configurations.
   # Generate with:  base64 -w0 ca.crt
-  caBundle: ""
-
-  # Base64-encoded server TLS certificate and private key stored in the Secret.
-  # Generate with:  base64 -w0 tls.crt  /  base64 -w0 tls.key
-  crt: ""
-  key: ""
+  caBundle: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZzakNDQTVxZ0F3SUJBZ0lVT29wTmdmSlZJNFBhNWNLUjdzdHJHYmp0WGFvd0RRWUpLb1pJaHZjTkFRRUwKQlFBd01qRXdNQzRHQTFVRUF3d25jRzlrTFhObFkzVnlhWFI1TFhkbFltaHZiMnN1ZEdkd2RHbHVaaTF6ZVhOMApaVzB1YzNaak1CNFhEVEkyTURNd09UQTFNemd5TkZvWERUTTJNRE13TmpBMU16Z3lORm93TWpFd01DNEdBMVVFCkF3d25jRzlrTFhObFkzVnlhWFI1TFhkbFltaHZiMnN1ZEdkd2RHbHVaaTF6ZVhOMFpXMHVjM1pqTUlJQ0lqQU4KQmdrcWhraUc5dzBCQVFFRkFBT0NBZzhBTUlJQ0NnS0NBZ0VBMDEveFpPZzVRSXNyVWpxMGlRMFJIZ0o3aGlScwp2WG9DdUNPaG5HVVoyR0Z4U25kUUZMSWlaSmFLSTFMeDZBcmNETjRqaFNpNk5oVm4vTnh2NkN5c0U4WSsrUHp4Ci9oVDVDbSs3cG5qWnNzcDhjMmhxUlRwUWlnVUZIaWpidTVoTW5QVFZmWThqVVdaVDkrLzQzaTNqVkh5TG95Rk4KOFBXcEVRS2hTbFdWM3F1ZWFQQjI5b3VrNXJKVVd2c3BOVmRGU2wyS3RqRUkyT3lxbUd6MzRMeDFGTjREeCtTdgp5aWpVY05WRGlWVVlZUDl6THA5VENSNFhwOXAvb0ZZdWV5RVVNcXR2SW5lclFZdGUxYUxSSzdOY3VUcG02cm00CmkyM2V1VGFiVWVxRWN4Z3FSTlpuNFN6bUxiT3JtSUJWVUNYbTllaTU0UjR5UXZTZWJNeWc1S2pFTnVvdWZVeksKQ0tEK3ZOODAycW1iWi9tbGxybmRyYVkrdXBuNU5KSTdaR3QrUWVUWFo0V20ybnk3L2dLcnJYNzd1cnh2Q0d0LwpzRHhNc2llL1NSbWdNSUZSVGpWWS9zSkFpaUNJMmJGd2FpYWdwd2gzKzRhRDU5bGlQcTdoemhWeENBanAvUFVICmhkYXJtMkpKLzllZUY2S3dkck1FV0txNkF6TnhZYlllZGRJUEhmUExWbE9XeWhMdHNVMXIwR2cyL2hNc3ZOL0QKbWJ0WUptYTM0VG5HUlZaNW0wc2V6UWt5bGdOT3JMVlJOU1M2YUhkYmNpREMwOGxjWE5zUHBTNjNkMmdITHhDUQphaWJ2eEl5MW54T3J5ZjIrZEprc2QzdFN5U1JHdFZtVFdxTlBGTjRBbDhtQkFFRzBFZ1c2OUwxZW1SclVpSVFqCjM2UnBhaU9LQmxWenVSVUNBd0VBQWFPQnZ6Q0J2REFkQmdOVkhRNEVGZ1FVdHVDY0FZVlhBVVJRSU9xVTRielIKQ1hLOG9sZ3dId1lEVlIwakJCZ3dGb0FVdHVDY0FZVlhBVVJRSU9xVTRielJDWEs4b2xnd0R3WURWUjBUQVFILwpCQVV3QXdFQi96QnBCZ05WSFJFRVlqQmdnaWR3YjJRdGMyVmpkWEpwZEhrdGQyVmlhRzl2YXk1MFozQjBhVzVtCkxYTjVjM1JsYlM1emRtT0NOWEJ2WkMxelpXTjFjbWwwZVMxM1pXSm9iMjlyTG5SbmNIUnBibVl0YzNsemRHVnQKTG5OMll5NWpiSFZ6ZEdWeUxteHZZMkZzTUEwR0NTcUdTSWIzRFFFQkN3VUFBNElDQVFDT3E4aEwrRXRITkd5NQpZMFNScWdpRXA4WWo1RmdIRGVyWmtyZUduVUVHZTJncXYzUWFyQVBYbWpxbjNsOUgrV2pETHZabVY0ckFtMVFXCkFzTFg3Y0IwbGl4OXpESko5SDZTVk1YaTdlbVFmbXMrQkpxNmh5WDZVUy9zRGZiSFk2Znh5RCtOUWFwOGllTzUKcmZKODZ3WkhoR1d6OG5NTWkySmViK1lETXYwbis2N2tVejRuWTJIUzk3WkN6S3NoSGh3aW5uK0VLNDBOZVh5Sgo1ZEFiNk5Ya3BGZW1zcVdnL1BrMGUwYW9BVHYwMTlMclYvcTRGRTlEdHdEUnVQekdjZ1Erb041Ry9GZTdnR0wyCmJxUlRocHFVQzhrRDcvdmdLYnhhYXRWZDZEeFNQQ1lQbWIyTk45bjNubXhNVVRhQ1YrZitEZ01kbjdtSVMrUXcKd3Y4WEpwQ2RYWkpLOS91Y0xpRWprL0tZL1dJRE1WN3RpRWZuSGN6UXd1THFLNDRSNTJyV0hIcEpvNlQrU0Y1NgpFQXR4TkUwNFRXcXI1YnpneURNTDJ4TUswTVV4aTJmMXpzMzVGR2lET1lxRXBIR3MyMTUwN3R3dkFPbGlQOEFxCjhhbnhtQ3ZaNVBBdCt0MGU3cEc3bG05TFVOcGhkdGM5MjM0cGxObkJYSjhIcSs4Tlp2K1VweVlwT3NsYlY5TmkKdUpaQXAyS3pNV2d3MXNpenExVDZJcWlCKys1WFhDeUdsQU4zWWx6SkdFc1B3SnN1elVjWFp4dmljTlZLYjJXOQpTUjJZeGVZYmtyaWRxbmhmUDJOVHczMjBTNTk4Wm5QL1pGRnRwTEUxYm9lS0FPbFR4dXEyMnBEV3lrYVRRNU5FClJtU3VtRXNRL2ppakZ3NjMwaGdsTWM2dktOckR1UT09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
 
   # cert-manager CA injector: set to "<namespace>/<Certificate-name>" to have
   # cert-manager populate caBundle automatically, e.g.:
@@ -61,13 +52,11 @@ webhook:
     failurePolicy: Fail
     timeoutSeconds: 10
 
-  # Namespaces excluded from both webhooks.
-  # The webhook's own namespace must always be listed to prevent deadlocks.
+  # Namespaces (in addition to helm deploy namespace) excluded from both webhook configurations
   excludedNamespaces:
-    - tgptinf-system
     - kube-system
 
 rbac:
   # ClusterRole and ClusterRoleBinding are cluster-scoped; names must be
   # globally unique across the cluster.
-  clusterRoleName: tritonai-pod-security-webhook
+  clusterRoleName: tgptinf-pod-security-webhook

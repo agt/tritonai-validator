@@ -1,0 +1,5 @@
+
+
+Note: you must manually create the TLS secret:
+
+kubectl create secret -n {{ .Release.Namespace | quote }} tls {{ include "pod-security-webhook.tlsSecretName" . }} --key=tls.key --cert=tls.key

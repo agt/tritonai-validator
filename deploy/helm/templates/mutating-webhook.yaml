@@ -1,6 +1,6 @@
 # MutatingWebhookConfiguration — the API server calls /mutate for every Pod
 # CREATE/UPDATE before running the validating webhook.  The mutator patches
-# pods toward compliance using default.* namespace
+# pods toward compliance using sc.dsmlp.ucsd.edu/default.* namespace
 # annotations; the validating webhook then performs the final accept/reject.
 #
 # ORDERING NOTE: Kubernetes runs mutating webhooks before validating webhooks.
@@ -14,45 +14,45 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Values.tls.certManagerAnnotation | quote }}
   {{- end }}
-spec:
-  webhooks:
-    - name: mutate.pod-security.tritonai.io
-      admissionReviewVersions: ["v1"]
-      sideEffects: None
-      # Allow pods through even if the webhook is temporarily unavailable.
-      # The validating webhook (failurePolicy: Fail) will still block non-
-      # compliant pods; the mutating webhook being down only means defaults
-      # won't be applied automatically.
-      failurePolicy: {{ .Values.webhook.mutating.failurePolicy }}
-      timeoutSeconds: {{ .Values.webhook.mutating.timeoutSeconds }}
-      clientConfig:
-        service:
-          name: {{ include "pod-security-webhook.fullname" . }}
-          namespace: {{ .Release.Namespace }}
-          path: /mutate
-          port: 443
-        caBundle: {{ .Values.tls.caBundle | quote }}
-      rules:
-        - apiGroups: [""]
-          apiVersions: ["v1"]
-          operations: ["CREATE", "UPDATE"]
-          resources: ["pods"]
-          scope: "Namespaced"
-      namespaceSelector:
-        matchExpressions:
-          - key: kubernetes.io/metadata.name
-            operator: NotIn
-            values:
-              {{- range .Values.webhook.excludedNamespaces }}
-              - {{ . | quote }}
-              {{- end }}
-          - key: mutator.{{ .Values.annotationPrefix }}
-            operator: In
-            values:
-              - enabled
-      # Only mutate pods that do not yet have the webhook's own annotation
-      # (prevents re-mutation of already-processed pods on UPDATE).
-      objectSelector:
-        matchExpressions:
-          - key: pod-security.tritonai.io/mutated
-            operator: DoesNotExist
+webhooks:
+- name: mutate.{{ include "pod-security-webhook.fullname" . }}.local
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  # Allow pods through even if the webhook is temporarily unavailable.
+  # The validating webhook (failurePolicy: Fail) will still block non-
+  # compliant pods; the mutating webhook being down only means defaults
+  # won't be applied automatically.
+  failurePolicy: {{ .Values.webhook.mutating.failurePolicy }}
+  timeoutSeconds: {{ .Values.webhook.mutating.timeoutSeconds }}
+  clientConfig:
+    service:
+      name: {{ include "pod-security-webhook.fullname" . }}
+      namespace: {{ .Release.Namespace }}
+      path: /mutate
+      port: 443
+    caBundle: {{ .Values.tls.caBundle | quote }}
+  rules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["pods"]
+      scope: "Namespaced"
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - {{ .Release.Namespace | quote }}
+          {{- range .Values.webhook.excludedNamespaces }}
+          - {{ . | quote }}
+          {{- end }}
+      - key: mutate.{{ include "pod-security-webhook.fullname" . }}
+        operator: In
+        values:
+          - enabled
+  # Only mutate pods that do not yet have the webhook's own annotation
+  # (prevents re-mutation of already-processed pods on UPDATE).
+  objectSelector:
+    matchExpressions:
+      - key: mutate.{{ include "pod-security-webhook.fullname" . }}.local/mutated
+        operator: DoesNotExist

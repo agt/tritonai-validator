@@ -14,37 +14,37 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Values.tls.certManagerAnnotation | quote }}
   {{- end }}
-spec:
-  webhooks:
-    - name: pod-security.tritonai.ucsd.edu
-      admissionReviewVersions: ["v1"]
-      sideEffects: None
-      # Reject pods if the webhook is unreachable.
-      failurePolicy: {{ .Values.webhook.validating.failurePolicy }}
-      timeoutSeconds: {{ .Values.webhook.validating.timeoutSeconds }}
-      clientConfig:
-        service:
-          name: {{ include "pod-security-webhook.fullname" . }}
-          namespace: {{ .Release.Namespace }}
-          path: /validate
-          port: 443
-        caBundle: {{ .Values.tls.caBundle | quote }}
-      rules:
-        - apiGroups: [""]
-          apiVersions: ["v1"]
-          operations: ["CREATE", "UPDATE"]
-          resources: ["pods", "deployments", "jobs", "cronjobs", "statefulsets"]
-          scope: "Namespaced"
-      # Exclude the webhook's own namespace to prevent deadlocks.
-      namespaceSelector:
-        matchExpressions:
-          - key: kubernetes.io/metadata.name
-            operator: NotIn
-            values:
-              {{- range .Values.webhook.excludedNamespaces }}
-              - {{ . | quote }}
-              {{- end }}
-          - key: validator.{{ .Values.annotationPrefix }}
-            operator: In
-            values:
-              - enabled
+webhooks:
+- name: validate.{{ include "pod-security-webhook.fullname" . }}.local
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  # Reject pods if the webhook is unreachable.
+  failurePolicy: {{ .Values.webhook.validating.failurePolicy }}
+  timeoutSeconds: {{ .Values.webhook.validating.timeoutSeconds }}
+  clientConfig:
+    service:
+      name: {{ include "pod-security-webhook.fullname" . }}
+      namespace: {{ .Release.Namespace }}
+      path: /validate
+      port: 443
+    caBundle: {{ .Values.tls.caBundle | quote }}
+  rules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["pods", "deployments", "jobs", "cronjobs", "statefulsets"]
+      scope: "Namespaced"
+  # Exclude the webhook's own namespace to prevent deadlocks.
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - {{ .Release.Namespace | quote }}
+          {{- range .Values.webhook.excludedNamespaces }}
+          - {{ . | quote }}
+          {{- end }}
+      - key: validate.{{ include "pod-security-webhook.fullname" . }}
+        operator: In
+        values:
+          - enabled
