@@ -54,7 +54,8 @@ import logging
 from typing import Any
 
 from .config import DEFAULT_PREFIX, POLICY_PREFIX
-from .validator import FieldBehavior, _FIELD_SPECS, _is_node_kubernetes_toleration
+from .pod_helpers import _all_containers, _is_node_kubernetes_toleration
+from .validator import FieldBehavior, _FIELD_SPECS
 
 logger = logging.getLogger(__name__)
 
@@ -131,17 +132,13 @@ def _parse_default(
 # ---------------------------------------------------------------------------
 
 
-_CONTAINER_KINDS = ("containers", "initContainers", "ephemeralContainers")
-
-
 def _any_container_missing_field(pod: dict[str, Any], field_name: str) -> bool:
     """Return True if any container, initContainer, or ephemeralContainer is
     missing *field_name* in its securityContext (or has no securityContext)."""
-    for kind in _CONTAINER_KINDS:
-        for container in pod.get(kind) or []:
-            sc = container.get("securityContext")
-            if sc is None or field_name not in sc:
-                return True
+    for container in _all_containers(pod):
+        sc = container.get("securityContext")
+        if sc is None or field_name not in sc:
+            return True
     return False
 
 

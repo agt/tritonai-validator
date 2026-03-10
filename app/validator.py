@@ -55,32 +55,15 @@ from typing import Any, Callable
 from .config import ANNOTATION_NS, POLICY_PREFIX
 from .constraints.base import ConstraintSet
 from .constraints.registry import CONSTRAINT_REGISTRY, parse_annotation
+from .pod_helpers import (
+    _all_containers,
+    _container_name,
+    _container_sc,
+    _is_node_kubernetes_toleration,
+    _pod_sc,
+)
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _pod_sc(pod_spec: dict[str, Any]) -> dict[str, Any]:
-    return pod_spec.get("securityContext") or {}
-
-
-def _all_containers(pod_spec: dict[str, Any]) -> list[dict[str, Any]]:
-    return (
-        list(pod_spec.get("containers") or [])
-        + list(pod_spec.get("initContainers") or [])
-        + list(pod_spec.get("ephemeralContainers") or [])
-    )
-
-
-def _container_sc(container: dict[str, Any]) -> dict[str, Any]:
-    return container.get("securityContext") or {}
-
-
-def _container_name(container: dict[str, Any]) -> str:
-    return container.get("name", "<unnamed>")
 
 
 # ---------------------------------------------------------------------------
@@ -578,17 +561,6 @@ def _validate_nfs_volumes(
 # ---------------------------------------------------------------------------
 
 _TOLERATIONS_KEY = f"{POLICY_PREFIX}tolerations"
-
-
-def _is_node_kubernetes_toleration(tol: dict[str, Any]) -> bool:
-    """Return True if the toleration key is in the node.kubernetes.io/* namespace.
-
-    Kubernetes itself adds these tolerations automatically for node conditions
-    (e.g. node.kubernetes.io/not-ready, node.kubernetes.io/unreachable).
-    They are always considered implicitly permitted and are never injected as
-    user-configurable defaults.
-    """
-    return tol.get("key", "").startswith("node.kubernetes.io/")
 
 
 def _parse_permitted_tolerations(raw: str) -> list[tuple[str, str, str]]:
