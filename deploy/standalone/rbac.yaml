@@ -6,6 +6,33 @@ metadata:
   namespace: tgptinf-system
 
 ---
+# Namespaced Role: read ConfigMaps in the webhook's own namespace for policy lookup.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-security-webhook-configmap-reader
+  namespace: tgptinf-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-security-webhook-configmap-reader
+  namespace: tgptinf-system
+subjects:
+  - kind: ServiceAccount
+    name: pod-security-webhook
+    namespace: tgptinf-system
+roleRef:
+  kind: Role
+  name: pod-security-webhook-configmap-reader
+  apiGroup: rbac.authorization.k8s.io
+
+---
 # The webhook needs read access to Namespace objects to fetch annotations.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

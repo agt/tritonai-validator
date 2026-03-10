@@ -328,15 +328,73 @@ kubectl apply -f deploy/webhook.yaml
 
 ---
 
+## ConfigMap-Based Policy Lookup
+
+As an alternative to annotating each namespace directly, policies can be stored in ConfigMaps within the webhook's own namespace and mapped to subject namespaces via their labels.
+
+### How it works
+
+1. Create a **policy index** ConfigMap (default name: `pod-security-policy-index`) in the webhook's namespace.  Each key is a `label=value` string; each value is the name of a policy ConfigMap in the same namespace.
+
+2. Create one or more **policy ConfigMaps** whose `data` entries use the exact same key/value format as namespace annotations:
+
+```yaml
+# Policy index
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-security-policy-index
+  namespace: tgptinf-system
+data:
+  "team=research": research-policy
+  "tier=gpu":      gpu-policy
+
+---
+# A policy ConfigMap — same structure as namespace annotations
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-policy
+  namespace: tgptinf-system
+data:
+  tritonai-admission-webhook/policy.runAsUser: "1000,>5000000"
+  tritonai-admission-webhook/policy.nodeLabel: "partition=gpu"
+  tritonai-admission-webhook/default.runAsUser: "1000"
+  tritonai-admission-webhook/default.nodeLabel: "partition=gpu"
+```
+
+3. Label the subject namespaces — no annotations needed:
+
+```yaml
+metadata:
+  labels:
+    tier: gpu
+```
+
+### Lookup behaviour
+
+- All `label=value` pairs on the subject namespace are checked against the index.
+- If **one or more** entries match, their policy ConfigMaps are fetched and merged in **lexical order of the `label=value` key** (so conflicts resolve deterministically: the lexically-last matching label wins). Namespace annotations are **not** consulted.
+- If **no** index entry matches, the webhook falls back to the namespace's own annotations (existing behaviour).
+
+### Caching
+
+Both the index ConfigMap and each policy ConfigMap are cached for `POLICY_CACHE_TTL` seconds (default 10 minutes). On fetch errors the last cached value is reused; if there is no prior cached value an empty dict is used so the webhook degrades gracefully rather than 500-ing.
+
+---
+
 ## Environment Variables
 
-| Variable             | Default                        | Description                                                              |
-|---------------------|--------------------------------|--------------------------------------------------------------------------|
-| `LOG_LEVEL`         | `INFO`                         | Python logging level                                                     |
-| `ANNOTATION_PREFIX` | `tritonai-admission-webhook`   | Prefix for all webhook namespace annotations (`policy.*`, `default.*`)   |
-| `PORT`              | `8443`                         | Listening port (dev entrypoint only)                                     |
-| `TLS_KEY_FILE`      | —                              | Path to TLS private key                                                  |
-| `TLS_CERT_FILE`     | —                              | Path to TLS certificate                                                  |
+| Variable                | Default                        | Description                                                                        |
+|------------------------|--------------------------------|------------------------------------------------------------------------------------|
+| `LOG_LEVEL`            | `INFO`                         | Python logging level                                                               |
+| `ANNOTATION_PREFIX`    | `tritonai-admission-webhook`   | Prefix for all webhook namespace annotations (`policy.*`, `default.*`)             |
+| `WEBHOOK_NAMESPACE`    | *(auto-detected)*              | Namespace the webhook runs in; used for ConfigMap lookups. Auto-detected from the in-cluster service-account file when not set. |
+| `POLICY_INDEX_CONFIGMAP` | `pod-security-policy-index`  | Name of the index ConfigMap that maps `label=value` → policy ConfigMap name       |
+| `POLICY_CACHE_TTL`     | `600`                          | Seconds to cache the index and policy ConfigMaps (0 disables caching)             |
+| `PORT`                 | `8443`                         | Listening port (dev entrypoint only)                                               |
+| `TLS_KEY_FILE`         | —                              | Path to TLS private key                                                            |
+| `TLS_CERT_FILE`        | —                              | Path to TLS certificate                                                            |
 
 ---
 

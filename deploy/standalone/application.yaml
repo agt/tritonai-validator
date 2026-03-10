@@ -33,6 +33,12 @@ spec:
           env:
             - name: LOG_LEVEL
               value: "INFO"
+            - name: WEBHOOK_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POLICY_INDEX_CONFIGMAP
+              value: "pod-security-policy-index"
           volumeMounts:
             - name: tls
               mountPath: /tls
