@@ -125,5 +125,4 @@ Tests live in `tests/`. Helper factories `_pod()` and `_container()` build minim
 
 - **Toleration parsing duplication**: `_parse_default_tolerations()` (mutator) and `_parse_permitted_tolerations()` (validator) share near-identical parsing logic with different return types. Could be unified into a shared parser returning raw `(key, value, effect)` tuples.
 - **Underscore-prefixed cross-module helpers**: Functions in `pod_helpers.py` use `_` prefix (convention: module-private) but are imported across modules. Same for `_FIELD_SPECS` in validator.py imported by mutator.py. Consider dropping the prefix or moving `_FIELD_SPECS`/`FieldBehavior` to a shared module.
-- **Sync K8s API in async context**: `get_namespace_security_annotations()` is blocking; wrapping in `asyncio.to_thread()` would help under high concurrency.
 - **`FieldSpec.display_name` redundancy**: Always matches its dict key in `_FIELD_SPECS`; could be derived at point of use.
