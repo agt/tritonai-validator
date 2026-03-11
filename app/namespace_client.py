@@ -216,7 +216,7 @@ def _resolve_configmap_policy(ns_labels: dict[str, str]) -> dict[str, str] | Non
     # Collect (label=value, configmap_name) pairs for all matching labels.
     matches: list[tuple[str, str]] = []
     for label_key, label_value in ns_labels.items():
-        lookup_key = f"{label_key}/{label_value}"
+        lookup_key = f"{label_key}.{label_value}"
         cm_name = index.get(lookup_key)
         if cm_name:
             matches.append((lookup_key, cm_name))

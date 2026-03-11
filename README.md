@@ -334,7 +334,7 @@ As an alternative to annotating each namespace directly, policies can be stored 
 
 ### How it works
 
-1. Create a **policy index** ConfigMap (default name: `pod-security-policy-index`) in the webhook's namespace.  Each key is a `label/value` string; each value is the name of a policy ConfigMap in the same namespace.
+1. Create a **policy index** ConfigMap (default name: `pod-security-policy-index`) in the webhook's namespace.  Each key is a `label.value` string; each value is the name of a policy ConfigMap in the same namespace.
 
 2. Create one or more **policy ConfigMaps** whose `data` entries use the same key/value format as namespace annotations. Keys may be written in bare form (prefix optional) or with the full annotation prefix — both are accepted:
 
@@ -375,8 +375,8 @@ metadata:
 
 ### Lookup behaviour
 
-- All `label=value` pairs on the subject namespace are converted to "label/value" keys and are checked against the index.
-- If **one or more** entries match, their policy ConfigMaps are fetched and merged in **lexical order of the `label/value` key** (so conflicts resolve deterministically: the lexically-last matching label wins). The namespace's own `tritonai-admission-webhook/` annotations are then merged on top, so namespace annotations override ConfigMap entries on conflict. This allows per-namespace overrides without a separate ConfigMap.
+- All `label=value` pairs on the subject namespace are converted to "label.value" keys and are checked against the index.
+- If **one or more** entries match, their policy ConfigMaps are fetched and merged in **lexical order of the `label.value` key** (so conflicts resolve deterministically: the lexically-last matching label wins). The namespace's own `tritonai-admission-webhook/` annotations are then merged on top, so namespace annotations override ConfigMap entries on conflict. This allows per-namespace overrides without a separate ConfigMap.
 - If **no** index entry matches, the webhook falls back to the namespace's own annotations (existing behaviour).
 
 ### Caching
