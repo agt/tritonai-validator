@@ -193,7 +193,7 @@ async def validate(request: Request) -> Response:
             return _json_response(_allow(uid))
 
     # Fetch namespace security annotations
-    ns_annotations = get_namespace_security_annotations(namespace)
+    ns_annotations = await get_namespace_security_annotations(namespace)
     logger.debug("Namespace %r annotations: %s", namespace, ns_annotations)
 
     # For workloads, apply mutations so the validator sees post-mutation defaults
@@ -274,7 +274,7 @@ async def mutate(request: Request) -> Response:
         # Nothing useful to mutate; validator will handle rejection if needed
         return _json_response(_allow(uid))
 
-    ns_annotations = get_namespace_security_annotations(namespace)
+    ns_annotations = await get_namespace_security_annotations(namespace)
     patches = mutate_pod(ns_annotations, pod_spec)
 
     if patches:

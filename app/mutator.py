@@ -54,7 +54,7 @@ import logging
 from typing import Any
 
 from .config import DEFAULT_PREFIX, POLICY_PREFIX
-from .pod_helpers import _all_containers, _is_node_kubernetes_toleration
+from .pod_helpers import _all_containers, _container_sc, _is_node_kubernetes_toleration
 from .validator import FieldBehavior, _FIELD_SPECS
 
 logger = logging.getLogger(__name__)
@@ -136,8 +136,7 @@ def _any_container_missing_field(pod: dict[str, Any], field_name: str) -> bool:
     """Return True if any container, initContainer, or ephemeralContainer is
     missing *field_name* in its securityContext (or has no securityContext)."""
     for container in _all_containers(pod):
-        sc = container.get("securityContext")
-        if sc is None or field_name not in sc:
+        if field_name not in _container_sc(container):
             return True
     return False
 
@@ -386,7 +385,7 @@ def _compute_mutations(
     for field_suffix, field_spec in _FIELD_SPECS.items():
         mutator = _SC_MUTATORS.get(field_spec.behavior)
         if mutator is None:
-            continue  # OPTIONAL_SCALAR and OPTIONAL_LIST fields have no mutations; NODE_SELECTOR handled below
+            continue  # OPTIONAL_SCALAR has no mutations; NODE_SELECTOR handled below
 
         annotation_key = f"{POLICY_PREFIX}{field_suffix}"
         if annotation_key not in namespace_annotations:

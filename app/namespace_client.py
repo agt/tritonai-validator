@@ -26,6 +26,7 @@ is used so the webhook degrades gracefully.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from functools import lru_cache
@@ -64,6 +65,7 @@ def _get_core_v1_api() -> client.CoreV1Api:
     return client.CoreV1Api()
 
 
+<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # TTL-cached ConfigMap helpers
 # ---------------------------------------------------------------------------
@@ -235,13 +237,8 @@ def _resolve_configmap_policy(ns_labels: dict[str, str]) -> dict[str, str] | Non
     return merged
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def get_namespace_security_annotations(namespace: str) -> dict[str, str]:
-    """Return security policy annotations for *namespace*.
+def _fetch_namespace_security_annotations(namespace: str) -> dict[str, str]:
+    """Synchronous implementation that fetches namespace annotations.
 
     Tries ConfigMap-based policy lookup first (via the index); if no
     index entry matches the namespace's labels, falls back to the
@@ -272,3 +269,16 @@ def get_namespace_security_annotations(namespace: str) -> dict[str, str]:
         return {**cm_policy, **ns_own}
 
     return ns_own
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+async def get_namespace_security_annotations(namespace: str) -> dict[str, str]:
+    """Return a dict of ``<ANNOTATION_PREFIX>/*`` annotations from *namespace*.
+
+    Runs the blocking Kubernetes API call in a thread pool via
+    ``asyncio.to_thread()`` so it does not block the event loop.
+    """
+    return await asyncio.to_thread(_fetch_namespace_security_annotations, namespace)
