@@ -26,6 +26,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8443 --ssl-keyfile tls.key --ssl-cert
 
 There is no build step — this is a pure Python project.
 
+## Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANNOTATION_PREFIX` | `tritonai-admission-webhook` | Prefix for namespace annotations; derived constants in `app/config.py` |
+| `LOG_LEVEL` | `INFO` | Controls logging level (stdlib + uvicorn) |
+| `PORT` | `8443` | Server port when using `python -m app.main` dev entrypoint |
+| `TLS_KEY_FILE` | — | Path to TLS private key (passed to uvicorn) |
+| `TLS_CERT_FILE` | — | Path to TLS certificate (passed to uvicorn) |
+
 ## Architecture
 
 Two FastAPI endpoints in `app/main.py`:
@@ -41,7 +51,11 @@ API Server → /mutate → fetch ns annotations → mutate_pod() → JSON Patch 
 API Server → /validate → fetch ns annotations → [workloads: mutate_pod_spec()] → validate_pod() → allow/deny
 ```
 
-Namespace security annotations are fetched from the Kubernetes API via `app/namespace_client.py` (`get_namespace_security_annotations()`), which returns only annotations with the `ANNOTATION_PREFIX/` prefix (default: `tritonai-admission-webhook/`).
+Namespace security annotations are fetched from the Kubernetes API via `app/namespace_client.py` (`get_namespace_security_annotations()`), which returns only annotations with the `ANNOTATION_PREFIX/` prefix (default: `tritonai-admission-webhook/`). The K8s client is a synchronous call inside async handlers (acceptable given one call per webhook invocation). Auth tries in-cluster config first, then falls back to kubeconfig. Errors return an empty dict so the webhook continues (validator will deny rather than 500).
+
+### Shared helpers (`app/pod_helpers.py`)
+
+Reusable functions shared by mutator and validator: `_pod_sc()`, `_all_containers()`, `_container_sc()`, `_container_name()`, `_is_node_kubernetes_toleration()`. When adding code that reads pod/container securityContext fields, use these helpers rather than inlining `pod.get("securityContext") or {}`.
 
 ### Constraint system (`app/constraints/`)
 
@@ -86,9 +100,30 @@ Only injects missing values; never overwrites existing ones (the validator rejec
 
 Default values come from `<DEFAULT_PREFIX><field>` namespace annotations. Missing or unparseable defaults are logged as warnings; other fields continue to be processed.
 
+### Pydantic models (`app/models.py`)
+
+All models use `extra="allow"` to tolerate extra fields from the K8s API server. `AdmissionReviewResponse.model_dump_json()` defaults to `exclude_none=True`.
+
 ### Key annotation prefix
 
 The annotation prefix is configured via the `ANNOTATION_PREFIX` env var (default: `tritonai-admission-webhook`). Three derived constants in `app/config.py`:
 - `ANNOTATION_NS = f"{ANNOTATION_PREFIX}/"` — used to filter namespace annotations
 - `POLICY_PREFIX = f"{ANNOTATION_NS}policy."` — constraint annotations (e.g. `tritonai-admission-webhook/policy.runAsUser`)
 - `DEFAULT_PREFIX = f"{ANNOTATION_NS}default."` — mutator default annotations (e.g. `tritonai-admission-webhook/default.runAsUser`)
+
+## Deployment
+
+- **Docker**: Python 3.11-slim, runs as non-root (uid 1000), expects TLS at `/tls/tls.key` and `/tls/tls.crt`.
+- **Helm**: `helm install pod-security-webhook ./deploy/helm -n <namespace> --create-namespace`. Key values: `annotationPrefix`, `replicaCount` (default 2), `logLevel`.
+- **CI**: GitHub Actions (`.github/workflows/build-push-container-on-tag.yml`) builds on tag push, pushes to `ghcr.io`.
+
+## Testing conventions
+
+Tests live in `tests/`. Helper factories `_pod()` and `_container()` build minimal pod specs. Tests are grouped by feature into `Test*` classes (e.g. `TestRunAsNonRoot`, `TestValidateTolerations`).
+
+## Known technical debt
+
+- **Toleration parsing duplication**: `_parse_default_tolerations()` (mutator) and `_parse_permitted_tolerations()` (validator) share near-identical parsing logic with different return types. Could be unified into a shared parser returning raw `(key, value, effect)` tuples.
+- **Underscore-prefixed cross-module helpers**: Functions in `pod_helpers.py` use `_` prefix (convention: module-private) but are imported across modules. Same for `_FIELD_SPECS` in validator.py imported by mutator.py. Consider dropping the prefix or moving `_FIELD_SPECS`/`FieldBehavior` to a shared module.
+- **Sync K8s API in async context**: `get_namespace_security_annotations()` is blocking; wrapping in `asyncio.to_thread()` would help under high concurrency.
+- **`FieldSpec.display_name` redundancy**: Always matches its dict key in `_FIELD_SPECS`; could be derived at point of use.
