@@ -274,7 +274,7 @@ class TestGetNamespaceSecurityAnnotations:
             patch.object(nc, "_get_core_v1_api", return_value=api),
             patch.object(nc, "_resolve_configmap_policy", return_value=policy_data),
         ):
-            result = nc.get_namespace_security_annotations("my-ns")
+            result = nc._fetch_namespace_security_annotations("my-ns")
         assert result == policy_data
 
     def test_falls_back_to_ns_annotations_when_no_index_match(self):
@@ -289,7 +289,7 @@ class TestGetNamespaceSecurityAnnotations:
             patch.object(nc, "_get_core_v1_api", return_value=api),
             patch.object(nc, "_resolve_configmap_policy", return_value=None),
         ):
-            result = nc.get_namespace_security_annotations("my-ns")
+            result = nc._fetch_namespace_security_annotations("my-ns")
         assert result == {"tritonai-admission-webhook/policy.runAsUser": "500"}
         assert "unrelated-annotation" not in result
 
@@ -297,7 +297,7 @@ class TestGetNamespaceSecurityAnnotations:
         api = MagicMock()
         api.read_namespace.side_effect = _api_500()
         with patch.object(nc, "_get_core_v1_api", return_value=api):
-            result = nc.get_namespace_security_annotations("bad-ns")
+            result = nc._fetch_namespace_security_annotations("bad-ns")
         assert result == {}
 
     def test_labels_passed_to_resolve(self):
@@ -308,7 +308,7 @@ class TestGetNamespaceSecurityAnnotations:
             patch.object(nc, "_get_core_v1_api", return_value=api),
             patch.object(nc, "_resolve_configmap_policy", return_value=None) as mock_resolve,
         ):
-            nc.get_namespace_security_annotations("my-ns")
+            nc._fetch_namespace_security_annotations("my-ns")
         mock_resolve.assert_called_once_with({"env": "prod", "team": "research"})
 
     def test_ns_annotations_override_configmap_on_conflict(self):
@@ -328,7 +328,7 @@ class TestGetNamespaceSecurityAnnotations:
             patch.object(nc, "_get_core_v1_api", return_value=api),
             patch.object(nc, "_resolve_configmap_policy", return_value=cm_policy),
         ):
-            result = nc.get_namespace_security_annotations("my-ns")
+            result = nc._fetch_namespace_security_annotations("my-ns")
         assert result["tritonai-admission-webhook/policy.runAsUser"] == "9999"
         assert result["tritonai-admission-webhook/policy.runAsGroup"] == "2000"
         assert "unrelated/annotation" not in result
@@ -344,7 +344,7 @@ class TestGetNamespaceSecurityAnnotations:
             patch.object(nc, "_get_core_v1_api", return_value=api),
             patch.object(nc, "_resolve_configmap_policy", return_value=cm_policy),
         ):
-            result = nc.get_namespace_security_annotations("my-ns")
+            result = nc._fetch_namespace_security_annotations("my-ns")
         assert result == {
             "tritonai-admission-webhook/policy.runAsUser": "1000",
             "tritonai-admission-webhook/policy.nodeLabel": "partition=gpu",
@@ -364,7 +364,7 @@ class TestGetNamespaceSecurityAnnotations:
             patch.object(nc, "_get_core_v1_api", return_value=api),
             patch.object(nc, "_resolve_configmap_policy", return_value=cm_policy),
         ):
-            result = nc.get_namespace_security_annotations("my-ns")
+            result = nc._fetch_namespace_security_annotations("my-ns")
         assert result == {"tritonai-admission-webhook/policy.runAsUser": "1000"}
 
 
