@@ -69,7 +69,7 @@ def _get_core_v1_api() -> client.CoreV1Api:
 # TTL-cached ConfigMap helpers
 # ---------------------------------------------------------------------------
 
-# Index cache: maps "label=value" → policy ConfigMap name.
+# Index cache: maps "label.value" → policy ConfigMap name.
 _index_data: dict[str, str] | None = None
 _index_expires: float = 0.0
 
@@ -81,11 +81,11 @@ def _get_index() -> dict[str, str]:
     """Return the index ConfigMap data, refreshing from the API when stale.
 
     The index ConfigMap lives in ``WEBHOOK_NAMESPACE`` and maps
-    ``label=value`` strings to policy ConfigMap names, e.g.::
+    ``label.value`` strings to policy ConfigMap names, e.g.::
 
         data:
-          "team=research": research-policy
-          "tier=gpu":      gpu-policy
+          "team.research": research-policy
+          "tier.gpu":      gpu-policy
 
     A missing ConfigMap (404) is treated as an empty index (no label
     mappings configured).  On other errors the last known data is reused;
@@ -213,7 +213,7 @@ def _resolve_configmap_policy(ns_labels: dict[str, str]) -> dict[str, str] | Non
     if not index:
         return None
 
-    # Collect (label=value, configmap_name) pairs for all matching labels.
+    # Collect (label.value, configmap_name) pairs for all matching labels.
     matches: list[tuple[str, str]] = []
     for label_key, label_value in ns_labels.items():
         lookup_key = f"{label_key}.{label_value}"

@@ -26,7 +26,7 @@ def _detect_webhook_namespace() -> str:
 # Namespace where the webhook itself runs; used for ConfigMap lookups.
 WEBHOOK_NAMESPACE: str = _detect_webhook_namespace()
 
-# Name of the index ConfigMap that maps "label=value" → policy ConfigMap name.
+# Name of the index ConfigMap that maps "label.value" → policy ConfigMap name.
 POLICY_INDEX_CONFIGMAP: str = os.environ.get(
     "POLICY_INDEX_CONFIGMAP", "pod-security-policy-index"
 )

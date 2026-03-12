@@ -417,7 +417,7 @@ Both the index ConfigMap and each policy ConfigMap are cached for `POLICY_CACHE_
 |------------------------|--------------------------------|------------------------------------------------------------------------------------|
 | `LOG_LEVEL`            | `INFO`                         | Python logging level                                                               |
 | `ANNOTATION_PREFIX`    | `tritonai-admission-webhook`   | Prefix for all webhook namespace annotations (`policy.*`, `default.*`)             |
-| `POLICY_INDEX_CONFIGMAP` | `pod-security-policy-index`  | Name of the index ConfigMap that maps `label=value` → policy ConfigMap name       |
+| `POLICY_INDEX_CONFIGMAP` | `pod-security-policy-index`  | Name of the index ConfigMap that maps `label.value` → policy ConfigMap name       |
 | `POLICY_CACHE_TTL`     | `600`                          | Seconds to cache the index and policy ConfigMaps (0 disables caching)             |
 | `PORT`                 | `8443`                         | Listening port (dev entrypoint only)                                               |
 | `TLS_KEY_FILE`         | —                              | Path to TLS private key                                                            |

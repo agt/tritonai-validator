@@ -15,7 +15,7 @@ fullnameOverride: ""
 # Must match the ANNOTATION_PREFIX env var set on the webhook Deployment.
 annotationPrefix: tritonai-admission-webhook
 
-# Name of the ConfigMap (in the webhook's namespace) that maps "label=value"
+# Name of the ConfigMap (in the webhook's namespace) that maps "label.value"
 # strings to policy ConfigMap names.  An absent or empty ConfigMap means no
 # label-based policy lookup is active; the webhook falls back to namespace
 # annotations as usual.

@@ -57,15 +57,15 @@ class TestGetIndex:
 
     def test_fetches_index_on_first_call(self):
         api = MagicMock()
-        api.read_namespaced_config_map.return_value = _make_cm({"team=gpu": "gpu-policy"})
+        api.read_namespaced_config_map.return_value = _make_cm({"team.gpu": "gpu-policy"})
         with patch.object(nc, "_get_core_v1_api", return_value=api):
             result = nc._get_index()
-        assert result == {"team=gpu": "gpu-policy"}
+        assert result == {"team.gpu": "gpu-policy"}
         api.read_namespaced_config_map.assert_called_once()
 
     def test_returns_cached_value_within_ttl(self):
         api = MagicMock()
-        api.read_namespaced_config_map.return_value = _make_cm({"k=v": "cm1"})
+        api.read_namespaced_config_map.return_value = _make_cm({"k.v": "cm1"})
         with patch.object(nc, "_get_core_v1_api", return_value=api):
             nc._get_index()
             nc._get_index()
@@ -74,7 +74,7 @@ class TestGetIndex:
 
     def test_refetches_after_ttl_expires(self):
         api = MagicMock()
-        api.read_namespaced_config_map.return_value = _make_cm({"k=v": "cm1"})
+        api.read_namespaced_config_map.return_value = _make_cm({"k.v": "cm1"})
         with patch.object(nc, "_get_core_v1_api", return_value=api):
             nc._get_index()
             # Force expiry.
@@ -90,13 +90,13 @@ class TestGetIndex:
         assert result == {}
 
     def test_api_error_returns_stale_data(self):
-        nc._index_data = {"team=gpu": "gpu-policy"}
+        nc._index_data = {"team.gpu": "gpu-policy"}
         nc._index_expires = time.monotonic() - 1  # expired
         api = MagicMock()
         api.read_namespaced_config_map.side_effect = _api_500()
         with patch.object(nc, "_get_core_v1_api", return_value=api):
             result = nc._get_index()
-        assert result == {"team=gpu": "gpu-policy"}
+        assert result == {"team.gpu": "gpu-policy"}
 
     def test_api_error_returns_empty_when_no_prior_data(self):
         api = MagicMock()
@@ -181,24 +181,24 @@ class TestResolveConfigmapPolicy:
         assert result is None
 
     def test_returns_none_when_no_label_matches(self):
-        with patch.object(nc, "_get_index", return_value={"team=research": "research-policy"}):
+        with patch.object(nc, "_get_index", return_value={"team.research": "research-policy"}):
             result = nc._resolve_configmap_policy({"team": "gpu"})
         assert result is None
 
     def test_single_match_returns_policy_cm_data(self):
         policy_data = {"tritonai-admission-webhook/policy.runAsUser": "1000"}
         with (
-            patch.object(nc, "_get_index", return_value={"team=gpu": "gpu-policy"}),
+            patch.object(nc, "_get_index", return_value={"team.gpu": "gpu-policy"}),
             patch.object(nc, "_get_policy_cm", return_value=policy_data),
         ):
             result = nc._resolve_configmap_policy({"team": "gpu", "env": "prod"})
         assert result == policy_data
 
     def test_multiple_matches_merged_in_lexical_order(self):
-        """Later label=value (lexically) should win on key conflicts."""
+        """Later label.value (lexically) should win on key conflicts."""
         index = {
-            "team=research": "research-policy",
-            "tier=gpu": "gpu-policy",
+            "team.research": "research-policy",
+            "tier.gpu": "gpu-policy",
         }
         research_data = {
             "tritonai-admission-webhook/policy.runAsUser": "1000",
@@ -216,7 +216,7 @@ class TestResolveConfigmapPolicy:
             patch.object(nc, "_get_index", return_value=index),
             patch.object(nc, "_get_policy_cm", side_effect=_get_policy),
         ):
-            # "team=research" < "tier=gpu" lexically, so gpu_data applied last and wins.
+            # "team.research" < "tier.gpu" lexically, so gpu_data applied last and wins.
             result = nc._resolve_configmap_policy({"team": "research", "tier": "gpu"})
 
         assert result["tritonai-admission-webhook/policy.runAsUser"] == "2000"
@@ -224,10 +224,10 @@ class TestResolveConfigmapPolicy:
         assert result["tritonai-admission-webhook/policy.nodeLabel"] == "partition=gpu"
 
     def test_lexical_order_is_on_label_value_string_not_cm_name(self):
-        """Merge order is determined by the label=value key, not the ConfigMap name."""
+        """Merge order is determined by the label.value key, not the ConfigMap name."""
         index = {
-            "zzz=last": "first-policy",   # lexically last label → applied last → wins
-            "aaa=first": "second-policy",  # lexically first label → applied first → overridden
+            "zzz.last": "first-policy",   # lexically last label → applied last → wins
+            "aaa.first": "second-policy",  # lexically first label → applied first → overridden
         }
         first_policy_data = {"tritonai-admission-webhook/policy.runAsUser": "999"}
         second_policy_data = {"tritonai-admission-webhook/policy.runAsUser": "1"}
@@ -248,7 +248,7 @@ class TestResolveConfigmapPolicy:
 
     def test_returns_none_when_all_matching_cms_empty(self):
         with (
-            patch.object(nc, "_get_index", return_value={"team=gpu": "gpu-policy"}),
+            patch.object(nc, "_get_index", return_value={"team.gpu": "gpu-policy"}),
             patch.object(nc, "_get_policy_cm", return_value={}),
         ):
             result = nc._resolve_configmap_policy({"team": "gpu"})
