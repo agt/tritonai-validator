@@ -71,7 +71,7 @@ Any violation is reported as a validation error and the pod is rejected.
 
 ## Optional Defaults and Constraints
 
-### `tritonai-admission-webhook/policy.runAsUser` and `tritonai-admission-webhook/default.runAsUser`; `tritonai-admission-webhook/policy.runAsGroup` and `tritonai-admission-webhook/default.runAsGroup`
+### `{policy,default}.{runAsUser,runAsGroup}`
 
 _Mutator_:  If any Container-level `securityContext` is missing runAsUser/runAsGroup, and the Pod-level `securityContext` also lacks the value (or securityContext is absent), insert the default value at the Pod level.
 
@@ -102,20 +102,20 @@ Any token can be prefixed with `!` to negate it (e.g. `!1000`, `!2000-3000`, `!>
 ``` tritonai-admission-webhook/policy.runAsUser: "1000,2000-3000,>5000000" ```produces four constraints joined by OR — a user ID satisfies the annotation if it matches **any** of them. The same parser is shared by `runAsUser`, `runAsGroup`, `fsGroup`, and `supplementalGroups`.
 
 
-### `tritonai-admission-webhook/policy.fsGroup`
+### `{policy,default}.fsGroup`
 
 _Mutator_: If default provided, and Pod security context does not specify fsGroup, inject default value into Pod.
 
 _Validator_: If present, must match the annotation constraint value.  Validator accepts a `ConstraintSet` as with `runAsUser` using the same token logic.
 
-### `tritonai-admission-webhook/policy.supplementalGroups` and `tritonai-admission-webhook/default.supplementalGroups`
+### `{policy,default}.supplementalGroups`
 
 _Mutator_: If comma-separated default list is provided, and Pod security context does not specify `supplementalGroups`, inject defaults.
 
 _Validator_: If present,  **every element** in Pod's `supplementalGroups` list must be explicitly permitted. Validator accepts a `ConstraintSet` comma-separated list as with `runAsUser` using the same token logic.
 
 
-### `tritonai-admission-webhook/policy.nodeLabel`
+### `{policy,default}.nodeLabel`
 
 _Mutator_: If default provided, and Pod does not specify nodeSelector(s), inject default list.
 
@@ -144,7 +144,7 @@ Example with negation — `"rack=b,rack=c,!rack=restricted"`:
 
 
 
-### `tritonai-admission-webhook/policy.allowedNfsVolumes`
+### `policy.allowedNfsVolumes`
 
 _Validator_: If the annotation is **absent or empty**, no NFS volumes are permitted. If NFS volumes are present, **each** must match at least one positive (non-negated) entry in the comma-separated allowlist, and must **not** match any negated entry.
 
@@ -159,7 +159,7 @@ tritonai-admission-webhook/policy.allowedNfsVolumes: "10.20.5.3:/export/data,its
 
 A pod with no NFS volumes is always accepted regardless of this annotation.
 
-### `tritonai-admission-webhook/policy.prohibitedVolumeTypes`
+### `policy.prohibitedVolumeTypes`
 
 _Validator_: By default, the Validator allows use of the following Volume types:     "configMap",
     "downwardAPI",
@@ -188,7 +188,7 @@ across all `containers`, `initContainers`, and `ephemeralContainers` when their 
 tritonai-admission-webhook/policy.prohibitedVolumeTypes: "emptyDir,secret"
 ```
 
-### `tritonai-admission-webhook/policy.tolerations` and `tritonai-admission-webhook/default.tolerations`
+### `{policy,default}.tolerations`
 
 _Mutator_: Injects a list of `key=value:effect` defaults into `spec.tolerations` only when the pod's toleration list is **absent or empty**. (Kubernetes-internal tolerations ignored when deciding whether to inject.) If an entry's `value` is `*`, the injected toleration uses `operator: Exists` (no `value` field); otherwise the injected toleration uses `operator: Equal` and the supplied value.
 
