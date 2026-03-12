@@ -530,14 +530,20 @@ def _validate_nfs_volumes(
     A missing annotation is treated as an empty string (no NFS volumes permitted).
 
     Each NFS volume's "server:/path" is matched against the comma-separated list of
-    glob patterns in the annotation.  At least one pattern must match.
+    glob patterns in the annotation.  At least one positive (non-negated) pattern
+    must match, and no negated pattern (``!pattern``) may match.
+
+    Negation semantics: a ``!server:/path`` pattern means **none** of the pod's
+    NFS volumes may match that pattern.
     """
     nfs_volumes = [v for v in (pod_spec.get("volumes") or []) if "nfs" in v]
     if not nfs_volumes:
         return []
 
     raw = namespace_annotations.get(_NFS_ANNOTATION_KEY, "")
-    patterns = [t.strip() for t in raw.split(",") if t.strip()] if raw.strip() else []
+    tokens = [t.strip() for t in raw.split(",") if t.strip()] if raw.strip() else []
+    positive = [t for t in tokens if not t.startswith("!")]
+    negated = [t[1:].strip() for t in tokens if t.startswith("!")]
 
     errors: list[str] = []
     for volume in nfs_volumes:
@@ -547,11 +553,27 @@ def _validate_nfs_volumes(
         path = nfs.get("path", "")
         resource = f"{server}:{path}"
 
-        if not any(fnmatch.fnmatch(resource, p) for p in patterns):
-            errors.append(
-                f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
-                f"{_NFS_ANNOTATION_KEY!r}"
-            )
+        # Check negated patterns first: none may match
+        for pat in negated:
+            if fnmatch.fnmatch(resource, pat):
+                errors.append(
+                    f"NFS volume {vol_name!r} ({resource!r}) matches negated pattern "
+                    f"'!{pat}' in {_NFS_ANNOTATION_KEY!r}"
+                )
+                break  # one negation failure is enough for this volume
+        else:
+            # No negation hit; check positive patterns (if any exist, one must match)
+            if positive and not any(fnmatch.fnmatch(resource, p) for p in positive):
+                errors.append(
+                    f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
+                    f"{_NFS_ANNOTATION_KEY!r}"
+                )
+            elif not positive and not negated:
+                # No patterns at all → deny (original behavior)
+                errors.append(
+                    f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
+                    f"{_NFS_ANNOTATION_KEY!r}"
+                )
 
     return errors
 
@@ -563,27 +585,44 @@ def _validate_nfs_volumes(
 _TOLERATIONS_KEY = f"{POLICY_PREFIX}tolerations"
 
 
-def _parse_permitted_tolerations(raw: str) -> list[tuple[str, str, str]]:
-    """Parse the tolerations annotation into (key_pattern, value_pattern, effect_pattern) tuples.
+def _parse_toleration_token(token: str) -> tuple[str, str, str]:
+    """Parse a single toleration token into (key_pattern, value_pattern, effect_pattern).
 
     Raises ``ValueError`` on malformed tokens.
     """
-    result = []
+    if ":" not in token:
+        raise ValueError(f"expected 'key=value:effect' format, got {token!r}")
+    kv_part, effect_pat = token.rsplit(":", 1)
+    effect_pat = effect_pat.strip()
+    if "=" not in kv_part:
+        raise ValueError(f"expected 'key=value' before ':', got {kv_part!r}")
+    key_pat, value_pat = kv_part.split("=", 1)
+    return (key_pat.strip(), value_pat.strip(), effect_pat)
+
+
+def _parse_permitted_tolerations(
+    raw: str,
+) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
+    """Parse the tolerations annotation into positive and negated tuples.
+
+    Returns ``(positive, negated)`` where each list contains
+    ``(key_pattern, value_pattern, effect_pattern)`` tuples.
+
+    Raises ``ValueError`` on malformed tokens.
+    """
+    positive: list[tuple[str, str, str]] = []
+    negated: list[tuple[str, str, str]] = []
     for token in raw.split(","):
         token = token.strip()
         if not token:
             continue
-        if ":" not in token:
-            raise ValueError(f"expected 'key=value:effect' format, got {token!r}")
-        kv_part, effect_pat = token.rsplit(":", 1)
-        effect_pat = effect_pat.strip()
-        if "=" not in kv_part:
-            raise ValueError(f"expected 'key=value' before ':', got {kv_part!r}")
-        key_pat, value_pat = kv_part.split("=", 1)
-        result.append((key_pat.strip(), value_pat.strip(), effect_pat))
-    if not result:
+        if token.startswith("!"):
+            negated.append(_parse_toleration_token(token[1:].strip()))
+        else:
+            positive.append(_parse_toleration_token(token))
+    if not positive and not negated:
         raise ValueError("no permitted toleration entries parsed from annotation value")
-    return result
+    return positive, negated
 
 
 def _toleration_permitted(
@@ -619,10 +658,13 @@ def _validate_tolerations(
     """Validate pod tolerations against the tolerations annotation.
 
     Annotation absent → no restriction; any (or no) tolerations are permitted.
-    Annotation present → every pod toleration must match at least one permitted entry,
-    EXCEPT that ``node.kubernetes.io/*`` tolerations are always implicitly permitted
+    Annotation present → every pod toleration must match at least one positive
+    (non-negated) entry (if any positive entries exist), and must **not** match
+    any negated (``!key=value:effect``) entry.
+
+    ``node.kubernetes.io/*`` tolerations are always implicitly permitted
     and are never required to appear in the annotation.
-    Each permitted entry may use fnmatch-style globs in any field.
+    Each entry may use fnmatch-style globs in any field.
     A value pattern of ``"*"`` additionally covers the ``Exists`` operator (no value).
     """
     raw = namespace_annotations.get(_TOLERATIONS_KEY)
@@ -634,7 +676,7 @@ def _validate_tolerations(
         return []
 
     try:
-        permitted = _parse_permitted_tolerations(raw.strip())
+        permitted, denied = _parse_permitted_tolerations(raw.strip())
     except ValueError as exc:
         return [f"Namespace annotation {_TOLERATIONS_KEY!r} is malformed: {exc}"]
 
@@ -642,11 +684,25 @@ def _validate_tolerations(
     for tol in tolerations:
         if _is_node_kubernetes_toleration(tol):
             continue  # always implicitly permitted
-        if not any(_toleration_permitted(tol, kp, vp, ep) for kp, vp, ep in permitted):
-            errors.append(
-                f"Pod toleration {tol!r} is not permitted by "
-                f"namespace annotation {_TOLERATIONS_KEY!r}"
-            )
+
+        # Check negated entries first: none may match
+        blocked = False
+        for kp, vp, ep in denied:
+            if _toleration_permitted(tol, kp, vp, ep):
+                errors.append(
+                    f"Pod toleration {tol!r} matches negated entry in "
+                    f"namespace annotation {_TOLERATIONS_KEY!r}"
+                )
+                blocked = True
+                break
+
+        # If not blocked by negation, check positive entries
+        if not blocked and permitted:
+            if not any(_toleration_permitted(tol, kp, vp, ep) for kp, vp, ep in permitted):
+                errors.append(
+                    f"Pod toleration {tol!r} is not permitted by "
+                    f"namespace annotation {_TOLERATIONS_KEY!r}"
+                )
     return errors
 
 
