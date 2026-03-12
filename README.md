@@ -1,7 +1,7 @@
 
 # TritonAI Pod Security Admission Webhook
 
-A FastAPI-based Kubernetes Pod admission webhook which offers fine-grained control over workloads' security configuration while minimizing modifications to published YAML or Helm files and no dependencies on external systems: defaults and constraints are established through namespace Annotations.
+A FastAPI-based Kubernetes Pod admission webhook which offers fine-grained control over workloads' security configuration while minimizing modifications to published YAML or Helm files and without dependencies on external systems: defaults and constraints are established through shared policy sets (in configMaps) and per-namespace extensions/overrides (via namespace Annotations).
 
 - **Mutating webhook** (`/mutate`) — called first by the API server to inject optional defaults for fields later inspected by the Validator.
 
@@ -9,7 +9,7 @@ A FastAPI-based Kubernetes Pod admission webhook which offers fine-grained contr
 
 Beyond controlling Pod `securityContext` fields (`runAsUser`, etc.), defaults/constraints on `nodeSelectors` and `tolerations` enable Pods to be directed to specific node groups or excluded from them, and data security is enhanced through restrictions on permitted Volume types and allowable NFS servers/paths.
 
-These protections provide enhanced isolation for TritonAI/TritonGPT workloads executing within a mixed-tenant cluster.
+These protections provide enhanced isolation for workloads executing within a mixed-tenant cluster.
 
 ### Example Namespace Annotations:
 ```yaml
