@@ -56,6 +56,7 @@ from typing import Any, Callable
 from .config import ANNOTATION_NS, POLICY_PREFIX
 from .constraints.base import ConstraintSet
 from .constraints.boolean import BooleanConstraint
+from .constraints.nodeselectors import negated_keys as _nodeselectors_negated_keys
 from .constraints.registry import CONSTRAINT_REGISTRY, parse_annotation
 from .pod_helpers import (
     _all_containers,
@@ -248,6 +249,10 @@ def _validate_node_selector(
     Rules:
     1. pod.spec.nodeName must be absent — direct node binding bypasses nodeSelector.
     2. pod.spec.nodeSelector must satisfy every active constraint set.
+    3. For negated tokens (!key=value), the label key must not appear in any
+       nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution
+       .nodeSelectorTerms[].matchExpressions[].key — nodeAffinity can otherwise
+       be used to route pods around the restriction.
     """
     errors: list[str] = []
 
@@ -265,6 +270,23 @@ def _validate_node_selector(
                 f"Pod nodeSelector {node_selector!r} does not satisfy "
                 f"nodeSelectors constraint [{cs.description()}]"
             )
+
+    prohibited = _nodeselectors_negated_keys(constraint_sets)
+    if prohibited:
+        terms = (
+            (pod_spec.get("affinity") or {})
+            .get("nodeAffinity", {})
+            .get("requiredDuringSchedulingIgnoredDuringExecution", {})
+            .get("nodeSelectorTerms") or []
+        )
+        for term in terms:
+            for expr in term.get("matchExpressions") or []:
+                key = expr.get("key")
+                if key in prohibited:
+                    errors.append(
+                        f"Pod nodeAffinity references key {key!r} which is "
+                        f"prohibited by the nodeSelectors constraint"
+                    )
 
     return errors
 
