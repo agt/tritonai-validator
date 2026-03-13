@@ -55,14 +55,14 @@ def _patch_at(patches: list[dict], path: str) -> dict | None:
 
 
 def test_no_patches_when_no_annotations():
-    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 999})])
+    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 999, "allowPrivilegeEscalation": False})])
     assert mutate_pod({}, spec) == []
 
 
 def test_no_patches_when_no_constraint_annotation():
     # default annotation present but no matching constraint annotation
     annotations = {"tritonai-admission-webhook/default.runAsUser": "1000"}
-    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 999})])
+    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 999, "allowPrivilegeEscalation": False})])
     assert mutate_pod(annotations, spec) == []
 
 
@@ -73,7 +73,7 @@ def test_no_patches_when_no_constraint_annotation():
 
 def test_no_patches_when_default_annotation_absent(caplog):
     annotations = {"tritonai-admission-webhook/policy.runAsUser": "1000"}
-    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc=None)])
+    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
     patches = mutate_pod(annotations, spec)
     assert patches == []
     assert "default" in caplog.text.lower()
@@ -84,7 +84,7 @@ def test_no_patches_when_default_unparseable(caplog):
         "tritonai-admission-webhook/policy.runAsUser": "1000",
         "tritonai-admission-webhook/default.runAsUser": "not-a-number",
     }
-    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc=None)])
+    spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
     patches = mutate_pod(annotations, spec)
     assert patches == []
     assert "cannot parse" in caplog.text.lower()
@@ -104,20 +104,20 @@ RUNASUSER_ANNOTATIONS = {
 class TestMutateRunAsUser:
 
     def test_no_patches_when_already_conforming_pod_sc(self):
-        spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_already_conforming_container_sc(self):
-        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_wrong_value_already_set_in_container(self):
         # Wrong values are left for the validator to reject; mutator does not touch them.
-        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 999})])
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 999, "allowPrivilegeEscalation": False})])
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_wrong_value_already_set_in_pod_sc(self):
-        spec = _pod(pod_sc={"runAsUser": 999, "runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
+        spec = _pod(pod_sc={"runAsUser": 999, "runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
     def test_creates_pod_sc_when_container_has_no_sc(self):
@@ -147,16 +147,16 @@ class TestMutateRunAsUser:
     def test_no_pod_sc_creation_when_all_containers_have_field(self):
         # All containers supply runAsUser; pod SC not needed for runAsUser.
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[
-            _container("c1", sc={"runAsUser": 1000}),
-            _container("c2", sc={"runAsUser": 1000}),
+            _container("c1", sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}),
+            _container("c2", sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}),
         ])
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
     def test_no_pod_sc_when_container_has_wrong_value(self):
         # Container has wrong value but field is present — not our job to fix it.
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[
-            _container("good", sc={"runAsUser": 1000}),
-            _container("bad", sc={"runAsUser": 999}),
+            _container("good", sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}),
+            _container("bad", sc={"runAsUser": 999, "allowPrivilegeEscalation": False}),
         ])
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
@@ -175,7 +175,7 @@ class TestMutateRunAsUser:
         # Pod SC has correct value; container also has correct value → no patches
         spec = _pod(
             pod_sc={"runAsUser": 1000, "runAsNonRoot": True},
-            containers=[_container(sc={"runAsUser": 1000})],
+            containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})],
         )
         assert mutate_pod(RUNASUSER_ANNOTATIONS, spec) == []
 
@@ -194,20 +194,20 @@ FSGROUP_ANNOTATIONS = {
 class TestMutateFsGroup:
 
     def test_no_patches_when_absent(self):
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(FSGROUP_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_no_pod_sc(self):
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(FSGROUP_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_wrong_value(self):
         # Wrong values are left for the validator to reject.
-        spec = _pod(pod_sc={"fsGroup": 999, "runAsNonRoot": True})
+        spec = _pod(pod_sc={"fsGroup": 999, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(FSGROUP_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_correct(self):
-        spec = _pod(pod_sc={"fsGroup": 1000, "runAsNonRoot": True})
+        spec = _pod(pod_sc={"fsGroup": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(FSGROUP_ANNOTATIONS, spec) == []
 
 
@@ -265,18 +265,18 @@ class TestMutateSupplementalGroups:
 
     def test_no_patches_when_already_set(self):
         """Non-empty supplementalGroups already present → left untouched."""
-        spec = _pod(pod_sc={"supplementalGroups": [1000, 2500], "runAsNonRoot": True})
+        spec = _pod(pod_sc={"supplementalGroups": [1000, 2500], "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(SG_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_non_conforming_already_set(self):
         # Non-conforming values are left for the validator to reject.
-        spec = _pod(pod_sc={"supplementalGroups": [1000, 9999], "runAsNonRoot": True})
+        spec = _pod(pod_sc={"supplementalGroups": [1000, 9999], "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(SG_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_no_constraint_annotation(self):
         """default.supplementalGroups present but no constraint annotation → no injection."""
         annotations = {"tritonai-admission-webhook/default.supplementalGroups": "1000"}
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod(annotations, spec) == []
 
 
@@ -294,13 +294,13 @@ NL_ANNOTATIONS = {
 class TestMutateNodeLabel:
 
     def test_no_patches_when_nodeselector_key_already_present(self):
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         spec["nodeSelector"] = {"partition": "gpu"}
         assert mutate_pod(NL_ANNOTATIONS, spec) == []
 
     def test_no_patches_when_key_present_with_different_value(self):
         # Key is present (even with a wrong value) — mutator does not touch it.
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         spec["nodeSelector"] = {"partition": "cpu"}
         assert mutate_pod(NL_ANNOTATIONS, spec) == []
 
@@ -314,7 +314,7 @@ class TestMutateNodeLabel:
 
     def test_no_injection_into_existing_nodeselector(self):
         # Pod already has a nodeSelector with a different key — not touched.
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         spec["nodeSelector"] = {"zone": "us-west-2"}
         assert mutate_pod(NL_ANNOTATIONS, spec) == []
 
@@ -360,7 +360,7 @@ class TestMutateNodeLabel:
             "tritonai-admission-webhook/policy.nodeLabel": "rack=a,rack=b",
             "tritonai-admission-webhook/default.nodeLabel": "rack=a",
         }
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         spec["nodeSelector"] = {"zone": "us-west-2"}
         assert mutate_pod(annotations, spec) == []
 
@@ -393,12 +393,12 @@ class TestMutateRunAsNonRoot:
 
     def test_no_patch_when_already_true(self):
         """runAsNonRoot already True → no patch."""
-        spec = _pod(pod_sc={"runAsNonRoot": True})
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod({}, spec) == []
 
     def test_no_patch_when_false(self):
         """runAsNonRoot=False is left alone; validator rejects it."""
-        spec = _pod(pod_sc={"runAsNonRoot": False})
+        spec = _pod(pod_sc={"runAsNonRoot": False}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert mutate_pod({}, spec) == []
 
     def test_injected_regardless_of_annotations(self):
@@ -433,6 +433,78 @@ class TestMutateRunAsNonRoot:
         create_idx = next(i for i, p in enumerate(patches) if p["path"] == "/spec/securityContext")
         add_idx = next(i for i, p in enumerate(patches) if p["path"] == "/spec/securityContext/runAsNonRoot")
         assert create_idx < add_idx  # parent created before child
+
+
+# ---------------------------------------------------------------------------
+# allowPrivilegeEscalation — unconditional hardcoded injection
+# ---------------------------------------------------------------------------
+
+
+class TestMutateAllowPrivilegeEscalation:
+    """allowPrivilegeEscalation=False is always injected on each container when absent."""
+
+    def test_injects_when_container_has_no_sc(self):
+        """No container securityContext → securityContext created with allowPrivilegeEscalation=False."""
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc=None)])
+        patches = mutate_pod({}, spec)
+        p = _patch_at(patches, "/spec/containers/0/securityContext")
+        assert p is not None
+        assert p["op"] == "add"
+        assert p["value"] == {"allowPrivilegeEscalation": False}
+
+    def test_injects_when_field_absent_from_existing_sc(self):
+        """Container has a securityContext but no allowPrivilegeEscalation → field added."""
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
+        patches = mutate_pod({}, spec)
+        p = _patch_at(patches, "/spec/containers/0/securityContext/allowPrivilegeEscalation")
+        assert p is not None
+        assert p["op"] == "add"
+        assert p["value"] is False
+
+    def test_no_patch_when_already_false(self):
+        """allowPrivilegeEscalation already False → no patch."""
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
+        assert mutate_pod({}, spec) == []
+
+    def test_no_patch_when_true(self):
+        """allowPrivilegeEscalation=True is left alone; validator rejects it."""
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": True})])
+        assert mutate_pod({}, spec) == []
+
+    def test_injected_regardless_of_annotations(self):
+        """Injection fires even when namespace has no policy annotations."""
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
+        patches = mutate_pod({}, spec)
+        p = _patch_at(patches, "/spec/containers/0/securityContext/allowPrivilegeEscalation")
+        assert p is not None
+        assert p["value"] is False
+
+    def test_applies_to_all_container_groups(self):
+        """Injection applies to containers, initContainers, and ephemeralContainers."""
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container("main", sc={"runAsUser": 1000})],
+            init_containers=[_container("init", sc={"runAsUser": 1000})],
+            ephemeral_containers=[_container("debug", sc={"runAsUser": 1000})],
+        )
+        patches = mutate_pod({}, spec)
+        paths = {p["path"] for p in patches}
+        assert "/spec/containers/0/securityContext/allowPrivilegeEscalation" in paths
+        assert "/spec/initContainers/0/securityContext/allowPrivilegeEscalation" in paths
+        assert "/spec/ephemeralContainers/0/securityContext/allowPrivilegeEscalation" in paths
+
+    def test_multiple_containers_all_patched(self):
+        """Each container missing the field gets its own patch."""
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[
+                _container("c1", sc={"runAsUser": 1000}),
+                _container("c2", sc={"runAsUser": 2000}),
+            ],
+        )
+        patches = mutate_pod({}, spec)
+        assert _patch_at(patches, "/spec/containers/0/securityContext/allowPrivilegeEscalation") is not None
+        assert _patch_at(patches, "/spec/containers/1/securityContext/allowPrivilegeEscalation") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +742,7 @@ def test_mutate_endpoint_no_patch_when_already_compliant():
     ):
         spec = {
             "securityContext": {"runAsNonRoot": True},
-            "containers": [{"name": "app", "securityContext": {"runAsUser": 1000}}],
+            "containers": [{"name": "app", "securityContext": {"runAsUser": 1000, "allowPrivilegeEscalation": False}}],
         }
         resp = client.post("/mutate", json=_review(pod_spec=spec))
     assert resp.status_code == 200

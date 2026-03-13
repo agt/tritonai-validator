@@ -32,6 +32,12 @@ rejecting any values that violate policy.
      is absent.  Existing values (including False) are left untouched so the
      downstream validator can reject them.
 
+   allowPrivilegeEscalation (hardcoded, unconditional)
+     securityContext.allowPrivilegeEscalation is always set to False on every
+     container (containers, initContainers, ephemeralContainers) when the field
+     is absent.  Existing values (including True) are left untouched so the
+     downstream validator can reject them.
+
    tolerations (optional default injection)
      If <DEFAULT_PREFIX>tolerations is present on the namespace, its value is
      parsed as a comma-separated list of "key=value:effect" tokens and injected
@@ -238,6 +244,35 @@ def _mutate_run_as_non_root(
         })
 
 
+def _mutate_allow_privilege_escalation(
+    pod: dict[str, Any],
+    patches: list[dict[str, Any]],
+) -> None:
+    """Unconditionally inject allowPrivilegeEscalation=False on every container if absent.
+
+    Iterates over containers, initContainers, and ephemeralContainers.  Only patches
+    when securityContext.allowPrivilegeEscalation is absent (None).  Existing values
+    — including True — are left untouched; the validator rejects them.
+    """
+    for group_key in ("containers", "initContainers", "ephemeralContainers"):
+        for i, container in enumerate(pod.get(group_key) or []):
+            csc = container.get("securityContext")
+            if csc is None:
+                container["securityContext"] = {"allowPrivilegeEscalation": False}
+                patches.append({
+                    "op": "add",
+                    "path": _ptr("spec", group_key, str(i), "securityContext"),
+                    "value": {"allowPrivilegeEscalation": False},
+                })
+            elif csc.get("allowPrivilegeEscalation") is None:
+                csc["allowPrivilegeEscalation"] = False
+                patches.append({
+                    "op": "add",
+                    "path": _ptr("spec", group_key, str(i), "securityContext", "allowPrivilegeEscalation"),
+                    "value": False,
+                })
+
+
 def _mutate_node_selector(
     pod: dict[str, Any],
     default_label: tuple[str, str] | None,
@@ -405,6 +440,9 @@ def _compute_mutations(
 
     # --- runAsNonRoot (hardcoded, always True, unconditional) ---
     _mutate_run_as_non_root(pod, patches)
+
+    # --- allowPrivilegeEscalation (hardcoded, always False, unconditional) ---
+    _mutate_allow_privilege_escalation(pod, patches)
 
     # --- tolerations (optional default injection) ---
     _mutate_tolerations(pod, namespace_annotations, patches)

@@ -295,7 +295,7 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
       - securityContext.sysctls must be absent or empty.
 
     Per container (containers, initContainers, ephemeralContainers):
-      - securityContext.allowPrivilegeEscalation must be absent or false.
+      - securityContext.allowPrivilegeEscalation must be explicitly false.
       - securityContext.privileged must be absent or false.
       - securityContext.capabilities.add must be absent, empty, or contain only NET_BIND_SERVICE.
       - securityContext.procMount must be absent, empty string, or "Default".
@@ -328,10 +328,10 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
         csc = _container_sc(container)
 
         ape = csc.get("allowPrivilegeEscalation")
-        if ape is not None and ape is not False:
+        if ape is not False:
             errors.append(
                 f"Container {cname!r} securityContext.allowPrivilegeEscalation must be "
-                f"absent or false; found {ape!r}"
+                f"explicitly false; found {ape!r}"
             )
 
         privileged = csc.get("privileged")

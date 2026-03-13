@@ -75,7 +75,7 @@ def test_pod_allowed_when_constraints_satisfied():
         body = _review(
             pod_spec={
                 "securityContext": {"runAsNonRoot": True},
-                "containers": [{"name": "app", "securityContext": {"runAsUser": 1000}}],
+                "containers": [{"name": "app", "securityContext": {"runAsUser": 1000, "allowPrivilegeEscalation": False}}],
             }
         )
         resp = client.post("/validate", json=body)
