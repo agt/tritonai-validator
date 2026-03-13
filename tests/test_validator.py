@@ -69,7 +69,7 @@ class TestRunAsUser:
 
     def test_pod_level_match(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_pod_level_no_match(self):
         spec = _pod(pod_sc={"runAsUser": 999}, containers=[_container()])
@@ -79,7 +79,7 @@ class TestRunAsUser:
 
     def test_no_pod_sc_container_sets_matching(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": True, "allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_no_pod_sc_container_sets_non_matching(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 999})])
@@ -148,7 +148,7 @@ class TestRunAsUser:
     def test_range_constraint(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": "1000,2000-3000"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 2500, "allowPrivilegeEscalation": False})])
-        assert validate_pod(annotations, spec).allowed is True
+        assert validate_pod([annotations], spec).allowed is True
 
     def test_range_constraint_fail(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": "1000,2000-3000"}
@@ -158,7 +158,7 @@ class TestRunAsUser:
     def test_greater_than_constraint(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": ">5000000"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 5000001, "allowPrivilegeEscalation": False})])
-        assert validate_pod(annotations, spec).allowed is True
+        assert validate_pod([annotations], spec).allowed is True
 
     def test_greater_than_boundary_fail(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": ">5000000"}
@@ -176,7 +176,7 @@ class TestRunAsGroup:
 
     def test_pod_level_match(self):
         spec = _pod(pod_sc={"runAsGroup": 2000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_container_required_when_no_pod_sc(self):
         spec = _pod(containers=[_container(sc=None)])
@@ -184,7 +184,7 @@ class TestRunAsGroup:
 
     def test_container_with_correct_group(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsGroup": 2000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
 
 # ---------------------------------------------------------------------------
@@ -197,15 +197,15 @@ class TestFsGroup:
 
     def test_absent_is_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_no_pod_sc_is_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_matching_value_ok(self):
         spec = _pod(pod_sc={"fsGroup": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_non_matching_value_rejected(self):
         spec = _pod(pod_sc={"fsGroup": 999, "runAsNonRoot": True})
@@ -224,15 +224,15 @@ class TestSupplementalGroups:
 
     def test_absent_is_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_empty_list_is_ok(self):
         spec = _pod(pod_sc={"supplementalGroups": [], "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_all_match(self):
         spec = _pod(pod_sc={"supplementalGroups": [1000, 2500, 3000], "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_one_fails(self):
         spec = _pod(pod_sc={"supplementalGroups": [1000, 9999], "runAsNonRoot": True})
@@ -449,7 +449,7 @@ class TestHardcodedConstraints:
 
     def test_allow_privilege_escalation_absent_rejected(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is False
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is False
 
     def test_allow_privilege_escalation_true_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": True})])
@@ -463,11 +463,11 @@ class TestHardcodedConstraints:
 
     def test_privileged_false_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "privileged": False, "allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_privileged_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_privileged_true_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "privileged": True})])
@@ -481,15 +481,15 @@ class TestHardcodedConstraints:
 
     def test_capabilities_add_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_capabilities_add_empty_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False, "capabilities": {"add": []}})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_capabilities_add_net_bind_service_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False, "capabilities": {"add": ["NET_BIND_SERVICE"]}})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_capabilities_add_disallowed_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "capabilities": {"add": ["SYS_ADMIN"]}})])
@@ -509,15 +509,15 @@ class TestHardcodedConstraints:
 
     def test_proc_mount_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_proc_mount_default_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False, "procMount": "Default"})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_proc_mount_empty_string_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False, "procMount": ""})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_proc_mount_unmasked_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "procMount": "Unmasked"})])
@@ -531,11 +531,11 @@ class TestHardcodedConstraints:
 
     def test_sysctls_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_sysctls_empty_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "sysctls": [], "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_sysctls_nonempty_rejected(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "sysctls": [{"name": "net.ipv4.tcp_syncookies", "value": "1"}]})
@@ -549,11 +549,11 @@ class TestHardcodedConstraints:
 
     def test_host_network_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_network_false_ok(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})]), "hostNetwork": False}
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_network_true_rejected(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostNetwork": True}
@@ -563,11 +563,11 @@ class TestHardcodedConstraints:
 
     def test_host_pid_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_pid_false_ok(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})]), "hostPID": False}
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_pid_true_rejected(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostPID": True}
@@ -577,11 +577,11 @@ class TestHardcodedConstraints:
 
     def test_host_ipc_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_ipc_false_ok(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})]), "hostIPC": False}
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_ipc_true_rejected(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostIPC": True}
@@ -626,15 +626,15 @@ class TestHardcodedConstraints:
 
     def test_host_port_absent_ok(self):
         c = _container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}, ports=[{"containerPort": 8080}])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     def test_host_port_zero_ok(self):
         c = _container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}, ports=[{"containerPort": 8080, "hostPort": 0}])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     def test_host_port_set_rejected(self):
         c = _container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}, ports=[{"containerPort": 8080, "hostPort": 8080}])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
+        result = validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
         assert result.allowed is False
         assert "hostPort" in result.message
         assert "8080" in result.message
@@ -652,7 +652,7 @@ class TestHardcodedConstraints:
     def test_host_port_in_init_container_rejected(self):
         main = _container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})
         init = _container("init", sc={"runAsUser": 1000, "allowPrivilegeEscalation": False}, ports=[{"containerPort": 80, "hostPort": 80}])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(
+        result = validate_pod([_ALWAYS_ANNOTATIONS], _pod(
             pod_sc={"runAsNonRoot": True}, containers=[main], init_containers=[init]
         ))
         assert result.allowed is False
@@ -746,7 +746,7 @@ class TestRunAsNonRoot:
 
     def test_pod_level_true_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_pod_level_false_rejected(self):
         spec = _pod(pod_sc={"runAsNonRoot": False, "runAsUser": 1000})
@@ -881,7 +881,7 @@ class TestHardcodedVolumeTypes:
         )
 
     def test_no_volumes_ok(self):
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])).allowed is True
 
     def test_each_allowed_non_nfs_type_ok(self):
         for vol_type in _ALLOWED_VOLUME_TYPES:
@@ -1051,7 +1051,7 @@ class TestProhibitedVolumeTypes:
 
     def test_no_volumes_always_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(self._anns("emptyDir,secret"), spec).allowed is True
+        assert validate_pod([self._anns("emptyDir,secret")], spec).allowed is True
 
     # ------------------------------------------------------------------ #
     # Types outside the base set remain rejected regardless
@@ -1354,8 +1354,8 @@ class TestValidateTolerations:
         assert result.allowed is True
 
     def test_no_annotation_permits_no_tolerations(self):
-        result = validate_pod(_TOL_ANNOTATIONS_BASE, _pod(pod_sc={"runAsNonRoot": True},
-                                                          containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})]))
+        result = validate_pod([_TOL_ANNOTATIONS_BASE], _pod(pod_sc={"runAsNonRoot": True},
+                                                           containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})]))
         assert result.allowed is True
 
     # exact match
@@ -1438,7 +1438,7 @@ class TestValidateTolerations:
     def test_absent_tolerations_always_ok(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
     # malformed annotation
     def test_malformed_annotation_rejects_pod(self):
@@ -1914,7 +1914,7 @@ class TestAndSemanticsAcrossLayers:
         """Layer 1: runAsUser=1000-2000, layer 2: runAsUser=1500-3000 → 1500-2000 satisfies both."""
         layer1 = {_RUN_AS_USER_KEY: "1000-2000"}
         layer2 = {_RUN_AS_USER_KEY: "1500-3000"}
-        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1800})
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1800}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert validate_pod([layer1, layer2], spec).allowed is True
 
     def test_two_layers_value_only_in_one_range_rejected(self):
@@ -1929,7 +1929,7 @@ class TestAndSemanticsAcrossLayers:
     def test_single_layer_list_behaves_as_before(self):
         """One-layer list preserves existing single-source semantics."""
         layer = {_RUN_AS_USER_KEY: "1000"}
-        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert validate_pod([layer], spec).allowed is True
 
     def test_namespace_layer_cannot_loosen_configmap_layer(self):
@@ -1946,8 +1946,8 @@ class TestAndSemanticsAcrossLayers:
         l1 = {_RUN_AS_USER_KEY: "1000,2000"}
         l2 = {_RUN_AS_USER_KEY: "2000,3000"}
         l3 = {_RUN_AS_USER_KEY: "1000,2000,3000"}
-        spec_2000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 2000})
-        spec_1000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
+        spec_2000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 2000}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
+        spec_1000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         assert validate_pod([l1, l2, l3], spec_2000).allowed is True
         assert validate_pod([l1, l2, l3], spec_1000).allowed is False  # fails l2
 
@@ -1958,7 +1958,7 @@ class TestAndSemanticsAcrossLayers:
     def _nfs_pod(self, server: str, path: str = "/data") -> dict:
         return _pod(
             pod_sc={"runAsNonRoot": True},
-            containers=[_container(sc={"runAsUser": 1000})],
+            containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})],
             volumes=[{"name": "nfs-vol", "nfs": {"server": server, "path": path}}],
         )
 
@@ -2009,7 +2009,7 @@ class TestAndSemanticsAcrossLayers:
     def _secret_vol_pod(self) -> dict:
         return _pod(
             pod_sc={"runAsNonRoot": True},
-            containers=[_container(sc={"runAsUser": 1000})],
+            containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})],
             volumes=[{"name": "s", "secret": {"secretName": "my-secret"}}],
         )
 

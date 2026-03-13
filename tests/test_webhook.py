@@ -71,7 +71,7 @@ def test_non_pod_unsupported_kind_allowed():
 
 
 def test_pod_allowed_when_constraints_satisfied():
-    with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+    with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
         body = _review(
             pod_spec={
                 "securityContext": {"runAsNonRoot": True},
@@ -84,7 +84,7 @@ def test_pod_allowed_when_constraints_satisfied():
 
 
 def test_pod_denied_when_constraint_fails():
-    with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+    with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
         body = _review(
             pod_spec={"containers": [{"name": "app", "securityContext": {"runAsUser": 999}}]}
         )
@@ -132,7 +132,7 @@ def test_missing_request_field_returns_400():
 
 
 def test_response_contains_uid():
-    with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+    with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
         body = _review(uid="my-unique-uid-123")
         body["request"]["object"]["spec"]["containers"][0]["securityContext"]["runAsUser"] = 1000
         resp = client.post("/validate", json=body)
@@ -140,7 +140,7 @@ def test_response_contains_uid():
 
 
 def test_response_apiversion_and_kind():
-    with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+    with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
         body = _review()
         resp = client.post("/validate", json=body)
     data = resp.json()
