@@ -101,6 +101,7 @@ The Mutation webhook also preemptively injects two fields on pods missing them:
 
 | Field | Allowed values | Semantics |
 |---|---|---|
+| `securityContext.runAsUser` | > `0` |
 | `hostNetwork` | absent or `false` | hardcoded |
 | `hostPID` | absent or `false` | hardcoded |
 | `hostIPC` | absent or `false` | hardcoded |
@@ -112,6 +113,7 @@ The Mutation webhook also preemptively injects two fields on pods missing them:
 
 | Field | Allowed values |
 |---|---|
+| `securityContext.runAsUser` | > `0` |
 | `securityContext.allowPrivilegeEscalation` | explicitly `false` (mutator injects when absent) |
 | `securityContext.privileged` | absent or `false` |
 | `securityContext.capabilities.add` | absent, empty, or `["NET_BIND_SERVICE"]` only |
@@ -297,7 +299,6 @@ Note: the Windows-only `hostProcess` control has been excluded from the followin
 | Sysctls | `spec.securityContext.sysctls[*].name` | `undefined/nil`, or a specific set of "safe" sysctls<br> (`kernel.shm_rmid_forced`, several `net.ipv4.*`) | ✅ Stricter | All sysctls are forbidden (hardcoded: `sysctls` must be absent or `[]`). This is more restrictive than Baseline, which permits the safe sysctl subset. |
 | AppArmor | `spec.securityContext.appArmorProfile.type`,<br> `spec.containers[*].`<br>`securityContext.appArmorProfile.type`,<br> init/ephemeral containers; <br>`metadata.annotations ["container.apparmor.security.beta.kubernetes.io/*"]` | `undefined/nil`, `RuntimeDefault`, `Localhost` | ❌ Not enforced | AppArmor profile type is not checked; `Unconfined` or arbitrary custom profiles are not blocked. |
 | SELinux | `seLinuxOptions.type` (pod & all containers);<br> `seLinuxOptions.user`,<br> `seLinuxOptions.role` (pod & all containers) | type: `undefined/""`, `container_t`, `container_init_t`,<br> `container_kvm_t`, `container_engine_t`; user/role: `undefined/""` | ❌ Not enforced | SELinux type, user, and role fields are not inspected. |
-
 | Seccomp | `spec.securityContext.seccompProfile.type`,<br> `spec.containers[*].securityContext.seccompProfile.type`,<br> init/ephemeral containers | `undefined/nil`, `RuntimeDefault`, `Localhost` (i.e. `Unconfined` is disallowed) | ❌ Not enforced | Seccomp profile type is not inspected; `Unconfined` is not blocked. |
 
 
@@ -313,7 +314,7 @@ Restricted is cumulative — it includes all Baseline controls above, plus the f
 | Volume Types | `spec.volumes[*]` | Only `configMap`, `csi`, `downwardAPI`, `emptyDir`, `ephemeral`, `persistentVolumeClaim`, `projected`, `secret` | ⚙️ Configurable  | The hardcoded allowed set includes extra types not permitted by Restricted: `nfs`, `image`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate`. These can be excluded using `tritonai-admission-webhook/policy.prohibitedVolumeTypes`, reducing the effective set to `configMap`, `downwardAPI`, `emptyDir`, `persistentVolumeClaim`, `projected`, `secret`. However, `csi` and `ephemeral` — which Restricted allows — are not in the webhook's base set and cannot be added via annotation, so pods requiring those types will always be rejected. |
 | Privilege Escalation | `spec.containers[*].securityContext.allowPrivilegeEscalation`, init/ephemeral containers | Must be explicitly `false` | ✅ Enforced | The mutator unconditionally injects `allowPrivilegeEscalation: false` on every container when the field is absent; the validator then requires the field to be explicitly `false`. |
 | Running as Non-root (`runAsNonRoot`) | `spec.securityContext.runAsNonRoot`, `spec.containers[*].securityContext.runAsNonRoot`, init/ephemeral containers | `true` at pod or container level | ✅ Enforced | Hardcoded: `runAsNonRoot` must be `true` at pod level or on every container individually. The mutator unconditionally injects `true` when the field is absent. |
-| Running as Non-root user (`runAsUser != 0`) | `spec.securityContext.runAsUser`, `spec.containers[*].securityContext.runAsUser`, init/ephemeral containers | Any non-zero value, or `undefined/null` | ⚙️ Configurable | The webhook enforces `runAsUser` through `tritonai-admission-webhook/policy.runAsUser`. Setting that annotation to `">0"` (or any constraint that excludes `0`) satisfies this control. There is no hardcoded default preventing UID 0; compliance depends entirely on the namespace annotation. |
+| Running as Non-root user (`runAsUser != 0`) | `spec.securityContext.runAsUser`, `spec.containers[*].securityContext.runAsUser`, init/ephemeral containers | Any non-zero value, or `undefined/null` | ✅ Enforced | Hardcoded: `runAsUser > 0` |
 | Seccomp (Restricted) | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | Must be `RuntimeDefault` or `Localhost` (absence is not permitted) | ❌ Not enforced | Seccomp profile type is not inspected. Under Restricted, omitting the field is a violation; the webhook cannot enforce this without new logic. |
 | Capabilities (`drop ALL`) | `spec.containers[*].securityContext.capabilities.drop`, init/ephemeral containers | Must include `ALL` |  ✅ Equivalent | `capabilities.drop` is not checked. The webhook instead validates `capabilities.add` (only `NET_BIND_SERVICE` permitted). |
 
