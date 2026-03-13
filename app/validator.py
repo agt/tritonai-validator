@@ -307,8 +307,10 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
     Pod-level:
       - hostNetwork, hostPID, hostIPC must each be absent or false.
       - securityContext.sysctls must be absent or empty.
+      - securityContext.runAsUser must not be 0 (root).
 
     Per container (containers, initContainers, ephemeralContainers):
+      - securityContext.runAsUser must not be 0 (root).
       - securityContext.allowPrivilegeEscalation must be explicitly false.
       - securityContext.privileged must be absent or false.
       - securityContext.capabilities.add must be absent, empty, or contain only NET_BIND_SERVICE.
@@ -335,6 +337,11 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
         errors.append(
             f"Pod securityContext.sysctls must be absent or empty; found {sysctls!r}"
         )
+
+    # Pod-level: runAsUser must not be 0
+    pod_run_as_user = pod_sc.get("runAsUser")
+    if pod_run_as_user is not None and pod_run_as_user == 0:
+        errors.append("Pod securityContext.runAsUser must not be 0 (root)")
 
     # Container-level checks
     for container in _all_containers(pod_spec):
@@ -377,6 +384,12 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
                     f"Container {cname!r} port {port.get('containerPort', '?')!r} "
                     f"must not set hostPort; found hostPort={host_port!r}"
                 )
+
+        run_as_user = csc.get("runAsUser")
+        if run_as_user is not None and run_as_user == 0:
+            errors.append(
+                f"Container {cname!r} securityContext.runAsUser must not be 0 (root)"
+            )
 
     return errors
 

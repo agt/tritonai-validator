@@ -664,6 +664,75 @@ class TestHardcodedConstraints:
 
 
 # ---------------------------------------------------------------------------
+# runAsUser must not be 0 (root) — hardcoded constraint
+# ---------------------------------------------------------------------------
+
+
+class TestRunAsUserNotRoot:
+    """runAsUser=0 is always rejected at both pod and container level."""
+
+    def test_pod_level_zero_rejected(self):
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 0}, containers=[_container(sc={"allowPrivilegeEscalation": False, "runAsUser": 1000})])
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
+        assert result.allowed is False
+        assert "runAsUser must not be 0" in result.message
+
+    def test_pod_level_nonzero_ok(self):
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
+
+    def test_pod_level_absent_ok(self):
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False, "runAsUser": 1000})])
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
+
+    def test_container_zero_rejected(self):
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(name="bad", sc={"allowPrivilegeEscalation": False, "runAsUser": 0})])
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
+        assert result.allowed is False
+        assert "'bad'" in result.message
+        assert "runAsUser must not be 0" in result.message
+
+    def test_container_nonzero_ok(self):
+        spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False, "runAsUser": 1000})])
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
+
+    def test_init_container_zero_rejected(self):
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True, "runAsUser": 1000},
+            containers=[_container(sc={"allowPrivilegeEscalation": False})],
+            init_containers=[_container(name="init", sc={"allowPrivilegeEscalation": False, "runAsUser": 0})],
+        )
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
+        assert result.allowed is False
+        assert "'init'" in result.message
+        assert "runAsUser must not be 0" in result.message
+
+    def test_ephemeral_container_zero_rejected(self):
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True, "runAsUser": 1000},
+            containers=[_container(sc={"allowPrivilegeEscalation": False})],
+            ephemeral_containers=[_container(name="debug", sc={"allowPrivilegeEscalation": False, "runAsUser": 0})],
+        )
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
+        assert result.allowed is False
+        assert "'debug'" in result.message
+        assert "runAsUser must not be 0" in result.message
+
+    def test_multiple_containers_only_zero_rejected(self):
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[
+                _container(name="good", sc={"allowPrivilegeEscalation": False, "runAsUser": 1000}),
+                _container(name="bad", sc={"allowPrivilegeEscalation": False, "runAsUser": 0}),
+            ],
+        )
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
+        assert result.allowed is False
+        assert "'bad'" in result.message
+        assert "'good'" not in result.message
+
+
+# ---------------------------------------------------------------------------
 # runAsNonRoot hardcoded REQUIRED_SCALAR constraint
 # ---------------------------------------------------------------------------
 

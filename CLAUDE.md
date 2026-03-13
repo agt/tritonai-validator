@@ -85,8 +85,8 @@ Two layers of checks:
    - `NODE_SELECTOR`: `nodeLabel` annotation — enforces `nodeName` absent, `nodeSelector` matches one of the `key=value` tokens.
 
 2. **Hardcoded constraints** (always enforced, not configurable):
-   - Pod: `hostNetwork`/`hostPID`/`hostIPC` absent or false; `securityContext.sysctls` absent or empty; `securityContext.runAsNonRoot` true (REQUIRED_SCALAR semantics); volume types restricted to allowed set; NFS volumes checked against `allowedNfsVolumes` annotation; `prohibitedVolumeTypes` annotation narrows the allowed set and also blocks env/envFrom sources.
-   - Containers/initContainers/ephemeralContainers: `allowPrivilegeEscalation` absent or false; `privileged` absent or false; `capabilities.add` absent/empty or `["NET_BIND_SERVICE"]` only; `procMount` absent/`""`/`"Default"`.
+   - Pod: `hostNetwork`/`hostPID`/`hostIPC` absent or false; `securityContext.sysctls` absent or empty; `securityContext.runAsUser` must not be 0 (root); `securityContext.runAsNonRoot` true (REQUIRED_SCALAR semantics); volume types restricted to allowed set; NFS volumes checked against `allowedNfsVolumes` annotation; `prohibitedVolumeTypes` annotation narrows the allowed set and also blocks env/envFrom sources.
+   - Containers/initContainers/ephemeralContainers: `securityContext.runAsUser` must not be 0 (root); `allowPrivilegeEscalation` absent or false; `privileged` absent or false; `capabilities.add` absent/empty or `["NET_BIND_SERVICE"]` only; `procMount` absent/`""`/`"Default"`.
 
 3. **Toleration allowlist** (`<POLICY_PREFIX>tolerations`): annotation-driven, handled outside `_FIELD_SPECS` like NFS volumes. Each pod toleration must match at least one positive `key=value:effect` entry (fnmatch globs supported in any field; `*` value also matches `Exists` operator) and must not match any negated (`!key=value:effect`) entry. Annotation absent = no restriction. `node.kubernetes.io/*` tolerations are always exempt from both positive and negated checks.
 
