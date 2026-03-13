@@ -10,7 +10,7 @@ Validation rules per annotation
 
 <PREFIX>/policy.fsGroup            →  OPTIONAL_SCALAR  (pod-level only in k8s)
 <PREFIX>/policy.supplementalGroups →  OPTIONAL_LIST    (pod-level only in k8s)
-<PREFIX>/policy.nodeLabel          →  NODE_SELECTOR    (see below)
+<PREFIX>/policy.nodeSelectors       →  NODE_SELECTOR    (see below)
 <PREFIX>/policy.tolerations        →  TOLERATION_ALLOWLIST (see below)
 
 Where <PREFIX> is the ANNOTATION_PREFIX env var (default: tritonai-admission-webhook).
@@ -121,8 +121,8 @@ _FIELD_SPECS: dict[str, FieldSpec] = {
         behavior=FieldBehavior.OPTIONAL_LIST,
         extract=lambda sc: sc.get("supplementalGroups"),
     ),
-    "nodeLabel": FieldSpec(
-        display_name="nodeLabel",
+    "nodeSelectors": FieldSpec(
+        display_name="nodeSelectors",
         behavior=FieldBehavior.NODE_SELECTOR,
         extract=lambda sc: None,  # handler reads pod_spec directly
     ),
@@ -254,7 +254,7 @@ def _validate_node_selector(
     node_name = pod_spec.get("nodeName")
     if node_name:
         errors.append(
-            f"Pod must not set nodeName when {POLICY_PREFIX}nodeLabel is "
+            f"Pod must not set nodeName when {POLICY_PREFIX}nodeSelectors is "
             f"enforced by the namespace; found nodeName={node_name!r}"
         )
 
@@ -263,7 +263,7 @@ def _validate_node_selector(
         if not cs.matches(node_selector):
             errors.append(
                 f"Pod nodeSelector {node_selector!r} does not satisfy "
-                f"nodeLabel constraint [{cs.description()}]"
+                f"nodeSelectors constraint [{cs.description()}]"
             )
 
     return errors

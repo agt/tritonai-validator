@@ -281,17 +281,17 @@ class TestMutateSupplementalGroups:
 
 
 # ---------------------------------------------------------------------------
-# nodeLabel — NODE_SELECTOR
+# nodeSelectors — NODE_SELECTOR
 # ---------------------------------------------------------------------------
 
 
 NL_ANNOTATIONS = {
-    "tritonai-admission-webhook/policy.nodeLabel": "partition=gpu",
-    "tritonai-admission-webhook/default.nodeLabel": "partition=gpu",
+    "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
+    "tritonai-admission-webhook/default.nodeSelectors": "partition=gpu",
 }
 
 
-class TestMutateNodeLabel:
+class TestMutateNodeSelectors:
 
     def test_no_patches_when_nodeselector_key_already_present(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
@@ -335,7 +335,7 @@ class TestMutateNodeLabel:
         assert any(p["path"] == "/spec/nodeSelector" for p in patches)
 
     def test_nodename_removed_even_without_valid_default(self, caplog):
-        annotations = {"tritonai-admission-webhook/policy.nodeLabel": "partition=gpu"}  # no default
+        annotations = {"tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu"}  # no default
         spec = _pod()
         spec["nodeName"] = "node-42"
         patches = mutate_pod(annotations, spec)
@@ -344,8 +344,8 @@ class TestMutateNodeLabel:
 
     def test_nodeselector_key_with_slash_escaped_in_pointer(self):
         annotations = {
-            "tritonai-admission-webhook/policy.nodeLabel": "kubernetes.io/hostname=node-1",
-            "tritonai-admission-webhook/default.nodeLabel": "kubernetes.io/hostname=node-1",
+            "tritonai-admission-webhook/policy.nodeSelectors": "kubernetes.io/hostname=node-1",
+            "tritonai-admission-webhook/default.nodeSelectors": "kubernetes.io/hostname=node-1",
         }
         # nodeSelector absent → default injected; verify pointer escaping
         spec = _pod(pod_sc={"runAsNonRoot": True})
@@ -357,8 +357,8 @@ class TestMutateNodeLabel:
     def test_existing_nodeselector_suppresses_injection(self):
         # Any pre-existing nodeSelector (even with unrelated keys) prevents injection.
         annotations = {
-            "tritonai-admission-webhook/policy.nodeLabel": "rack=a,rack=b",
-            "tritonai-admission-webhook/default.nodeLabel": "rack=a",
+            "tritonai-admission-webhook/policy.nodeSelectors": "rack=a,rack=b",
+            "tritonai-admission-webhook/default.nodeSelectors": "rack=a",
         }
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
         spec["nodeSelector"] = {"zone": "us-west-2"}
@@ -520,8 +520,8 @@ class TestMultipleConstraintMutations:
             "tritonai-admission-webhook/default.runAsUser": "1000",
             "tritonai-admission-webhook/policy.runAsGroup": "2000",
             "tritonai-admission-webhook/default.runAsGroup": "2000",
-            "tritonai-admission-webhook/policy.nodeLabel": "partition=gpu",
-            "tritonai-admission-webhook/default.nodeLabel": "partition=gpu",
+            "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
+            "tritonai-admission-webhook/default.nodeSelectors": "partition=gpu",
         }
         # Pod with no SC and a nodeName set
         spec = _pod(containers=[_container(sc=None)])

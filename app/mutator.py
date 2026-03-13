@@ -21,7 +21,7 @@ rejecting any values that violate policy.
      when that field is absent or an empty list.  Any existing non-empty list is
      left untouched.
 
-   NODE_SELECTOR (nodeLabel)
+   NODE_SELECTOR (nodeSelectors)
      • pod.spec.nodeName is always removed — it unconditionally bypasses nodeSelector.
      • The default key=value label is injected only when the pod specifies no
        nodeSelector at all.  Any existing nodeSelector (regardless of content)
@@ -117,7 +117,7 @@ def _parse_default(
             return values
         elif field_name in ("runAsUser", "runAsGroup", "fsGroup"):
             return int(raw)
-        elif field_name == "nodeLabel":
+        elif field_name == "nodeSelectors":
             if "=" not in raw:
                 raise ValueError(f"expected 'key=value' format, got {raw!r}")
             key, val = raw.split("=", 1)
@@ -278,7 +278,7 @@ def _mutate_node_selector(
     default_label: tuple[str, str] | None,
     patches: list[dict[str, Any]],
 ) -> None:
-    """Mutate pod scheduling fields when nodeLabel is active.
+    """Mutate pod scheduling fields when nodeSelectors is active.
 
     • nodeName is always removed — it unconditionally bypasses nodeSelector.
     • The default key=value label is injected only when nodeSelector is completely
@@ -432,10 +432,10 @@ def _compute_mutations(
 
         mutator(field_suffix, pod, default_value, patches)
 
-    # --- nodeLabel (NODE_SELECTOR) ---
-    node_label_key = f"{POLICY_PREFIX}nodeLabel"
-    if node_label_key in namespace_annotations:
-        nl_default = _parse_default("nodeLabel", node_label_key, namespace_annotations)
+    # --- nodeSelectors (NODE_SELECTOR) ---
+    node_selectors_key = f"{POLICY_PREFIX}nodeSelectors"
+    if node_selectors_key in namespace_annotations:
+        nl_default = _parse_default("nodeSelectors", node_selectors_key, namespace_annotations)
         _mutate_node_selector(pod, nl_default, patches)
 
     # --- runAsNonRoot (hardcoded, always True, unconditional) ---

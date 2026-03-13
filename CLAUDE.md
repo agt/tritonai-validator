@@ -82,7 +82,7 @@ Two layers of checks:
    - `REQUIRED_SCALAR`: pod-level value covers all containers; if absent at pod level, every container/initContainer/ephemeralContainer must individually set it.
    - `OPTIONAL_SCALAR`: only pod-level checked; absent = satisfied.
    - `OPTIONAL_LIST`: only pod-level checked; absent/empty = satisfied.
-   - `NODE_SELECTOR`: `nodeLabel` annotation — enforces `nodeName` absent, `nodeSelector` matches one of the `key=value` tokens.
+   - `NODE_SELECTOR`: `nodeSelectors` annotation — enforces `nodeName` absent, `nodeSelector` matches one of the `key=value` tokens.
 
 2. **Hardcoded constraints** (always enforced, not configurable):
    - Pod: `hostNetwork`/`hostPID`/`hostIPC` absent or false; `securityContext.sysctls` absent or empty; `securityContext.runAsUser` must not be 0 (root); `securityContext.runAsNonRoot` true (REQUIRED_SCALAR semantics); volume types restricted to allowed set; NFS volumes checked against `allowedNfsVolumes` annotation; `prohibitedVolumeTypes` annotation narrows the allowed set and also blocks env/envFrom sources.

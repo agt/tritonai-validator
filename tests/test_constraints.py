@@ -3,7 +3,7 @@ import pytest
 
 from app.constraints.base import NegatedConstraint
 from app.constraints.boolean import BooleanConstraintParser
-from app.constraints.nodelabel import NodeLabelConstraintParser
+from app.constraints.nodeselectors import NodeSelectorsConstraintParser
 from app.constraints.numeric import NumericConstraintParser
 
 
@@ -121,8 +121,8 @@ class TestBooleanConstraintParser:
             self.parser.parse("yes")
 
 
-class TestNodeLabelConstraintParser:
-    parser = NodeLabelConstraintParser()
+class TestNodeSelectorsConstraintParser:
+    parser = NodeSelectorsConstraintParser()
 
     def test_single_token_match(self):
         cs = self.parser.parse("partition=a")
@@ -266,8 +266,8 @@ class TestBooleanNegation:
             self.parser.parse("!yes")
 
 
-class TestNodeLabelNegation:
-    parser = NodeLabelConstraintParser()
+class TestNodeSelectorsNegation:
+    parser = NodeSelectorsConstraintParser()
 
     def test_negated_label(self):
         cs = self.parser.parse("!partition=a")

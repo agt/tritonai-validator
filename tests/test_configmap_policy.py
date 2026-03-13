@@ -206,7 +206,7 @@ class TestResolveConfigmapPolicy:
         }
         gpu_data = {
             "tritonai-admission-webhook/policy.runAsUser": "2000",  # overrides research
-            "tritonai-admission-webhook/policy.nodeLabel": "partition=gpu",
+            "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
         }
 
         def _get_policy(name: str) -> dict:
@@ -221,7 +221,7 @@ class TestResolveConfigmapPolicy:
 
         assert result["tritonai-admission-webhook/policy.runAsUser"] == "2000"
         assert result["tritonai-admission-webhook/policy.runAsGroup"] == "1000"
-        assert result["tritonai-admission-webhook/policy.nodeLabel"] == "partition=gpu"
+        assert result["tritonai-admission-webhook/policy.nodeSelectors"] == "partition=gpu"
 
     def test_lexical_order_is_on_label_value_string_not_cm_name(self):
         """Merge order is determined by the label.value key, not the ConfigMap name."""
@@ -336,7 +336,7 @@ class TestGetNamespaceSecurityAnnotations:
     def test_ns_annotations_extend_configmap(self):
         """Namespace annotations not present in the ConfigMap are added to the result."""
         cm_policy = {"tritonai-admission-webhook/policy.runAsUser": "1000"}
-        ns_annotations = {"tritonai-admission-webhook/policy.nodeLabel": "partition=gpu"}
+        ns_annotations = {"tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu"}
         ns = _make_ns(labels={"team": "gpu"}, annotations=ns_annotations)
         api = MagicMock()
         api.read_namespace.return_value = ns
@@ -347,7 +347,7 @@ class TestGetNamespaceSecurityAnnotations:
             result = nc._fetch_namespace_security_annotations("my-ns")
         assert result == {
             "tritonai-admission-webhook/policy.runAsUser": "1000",
-            "tritonai-admission-webhook/policy.nodeLabel": "partition=gpu",
+            "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
         }
 
     def test_non_prefixed_ns_annotations_excluded_in_configmap_path(self):

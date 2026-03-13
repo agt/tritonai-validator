@@ -23,14 +23,14 @@ metadata:
     tritonai-admission-webhook/policy.runAsGroup: "1000"
     tritonai-admission-webhook/policy.fsGroup: "1000"
     tritonai-admission-webhook/policy.supplementalGroups: "1000,2000-3000"
-    tritonai-admission-webhook/policy.nodeLabel: "partition=gpu,partition=cpu"
+    tritonai-admission-webhook/policy.nodeSelectors: "partition=gpu,partition=cpu"
     tritonai-admission-webhook/policy.tolerations: "node-type=its-ai*:NoSchedule,glean-node=*:NoExecute,!node-type=gpu:NoSchedule"
     tritonai-admission-webhook/policy.allowedNfsVolumes: "10.20.5.3:/export/data,itsnfs:/scratch,its-dsmlp-fs0[1-9]:/export/workspaces/*,!badserver:*"
     tritonai-admission-webhook/policy.prohibitedVolumeTypes: "emptyDir,secret"
     # Default annotations (used by the mutator to fill in absent fields)
     tritonai-admission-webhook/default.runAsUser: "1000"
     tritonai-admission-webhook/default.runAsGroup: "1000"
-    tritonai-admission-webhook/default.nodeLabel: "partition=gpu"
+    tritonai-admission-webhook/default.nodeSelectors: "partition=gpu"
     tritonai-admission-webhook/default.tolerations: "node-type=its-ai:NoSchedule"
 ```
 
@@ -64,9 +64,9 @@ metadata:
   namespace: tgptinf-system
 data:
   policy.runAsUser: "1000,>5000000"   # bare key — annotation prefix optional
-  policy.nodeLabel: "partition=gpu"
+  policy.nodeSelectors: "partition=gpu"
   default.runAsUser: "1000"
-  default.nodeLabel: "partition=gpu"
+  default.nodeSelectors: "partition=gpu"
   # full-prefix form is equally valid:
   # tritonai-admission-webhook/policy.runAsUser: "1000,>5000000"
 ```
@@ -171,7 +171,7 @@ _Mutator_: If comma-separated default list is provided, and Pod security context
 _Validator_: If present,  **every element** in Pod's `supplementalGroups` list must be explicitly permitted. Validator accepts a `ConstraintSet` comma-separated list as with `runAsUser` using the same token logic.
 
 
-### `{policy,default}.nodeLabel`
+### `{policy,default}.nodeSelectors`
 
 _Mutator_: If default provided, and Pod does not specify nodeSelector(s), inject default list.
 

@@ -325,13 +325,13 @@ class TestEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# nodeLabel — NODE_SELECTOR
+# nodeSelectors — NODE_SELECTOR
 # ---------------------------------------------------------------------------
 
 
-class TestNodeLabel:
-    ANNOTATIONS = {"tritonai-admission-webhook/policy.nodeLabel": "partition=a"}
-    MULTI_ANNOTATIONS = {"tritonai-admission-webhook/policy.nodeLabel": "rack=b,rack=c"}
+class TestNodeSelectors:
+    ANNOTATIONS = {"tritonai-admission-webhook/policy.nodeSelectors": "partition=a"}
+    MULTI_ANNOTATIONS = {"tritonai-admission-webhook/policy.nodeSelectors": "rack=b,rack=c"}
 
     def test_matching_nodeselector_allowed(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"allowPrivilegeEscalation": False})])
@@ -378,7 +378,7 @@ class TestNodeLabel:
         result = validate_pod([self.MULTI_ANNOTATIONS], spec)
         assert result.allowed is False
 
-    def test_nodename_rejected_when_nodelabel_enforced(self):
+    def test_nodename_rejected_when_nodeselectors_enforced(self):
         spec = _pod()
         spec["nodeName"] = "node-42"
         spec["nodeSelector"] = {"partition": "a"}
@@ -402,17 +402,17 @@ class TestNodeLabel:
         assert "nodeName" in result.message
         assert "nodeSelector" in result.message
 
-    def test_nodelabel_combined_with_other_constraints(self):
+    def test_nodeselectors_combined_with_other_constraints(self):
         annotations = {
             "tritonai-admission-webhook/policy.runAsUser": "1000",
-            "tritonai-admission-webhook/policy.nodeLabel": "partition=gpu",
+            "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
         }
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
         spec["nodeSelector"] = {"partition": "gpu"}
         assert validate_pod([annotations], spec).allowed is True
 
-    def test_nodelabel_malformed_annotation_rejected(self):
-        annotations = {"tritonai-admission-webhook/policy.nodeLabel": "no-equals-sign"}
+    def test_nodeselectors_malformed_annotation_rejected(self):
+        annotations = {"tritonai-admission-webhook/policy.nodeSelectors": "no-equals-sign"}
         spec = _pod()
         spec["nodeSelector"] = {"partition": "a"}
         result = validate_pod([annotations], spec)
@@ -1556,11 +1556,11 @@ class TestNegationIntegration:
         result = validate_pod([anns], spec)
         assert result.allowed is True
 
-    def test_node_label_negated_blocks_label(self):
-        """nodeLabel=!partition=gpu → nodeSelector with partition=gpu is denied."""
+    def test_node_selectors_negated_blocks_label(self):
+        """nodeSelectors=!partition=gpu → nodeSelector with partition=gpu is denied."""
         anns = {
             f"{_P}runAsUser": "1000",
-            f"{_P}nodeLabel": "!partition=gpu",
+            f"{_P}nodeSelectors": "!partition=gpu",
         }
         spec = _pod(
             pod_sc={"runAsNonRoot": True, "runAsUser": 1000},
@@ -1569,13 +1569,13 @@ class TestNegationIntegration:
         spec["nodeSelector"] = {"partition": "gpu"}
         result = validate_pod([anns], spec)
         assert result.allowed is False
-        assert "nodeLabel" in result.message.lower() or "nodeSelector" in result.message
+        assert "nodeSelectors" in result.message.lower() or "nodeSelector" in result.message
 
-    def test_node_label_negated_allows_other(self):
-        """nodeLabel=partition=cpu,!partition=gpu → partition=cpu is allowed."""
+    def test_node_selectors_negated_allows_other(self):
+        """nodeSelectors=partition=cpu,!partition=gpu → partition=cpu is allowed."""
         anns = {
             f"{_P}runAsUser": "1000",
-            f"{_P}nodeLabel": "partition=cpu,!partition=gpu",
+            f"{_P}nodeSelectors": "partition=cpu,!partition=gpu",
         }
         spec = _pod(
             pod_sc={"runAsNonRoot": True, "runAsUser": 1000},
@@ -1758,7 +1758,7 @@ class TestTolerationNegation:
 # ---------------------------------------------------------------------------
 
 _RUN_AS_USER_KEY = "tritonai-admission-webhook/policy.runAsUser"
-_NODE_LABEL_KEY = "tritonai-admission-webhook/policy.nodeLabel"
+_NODE_SELECTORS_KEY = "tritonai-admission-webhook/policy.nodeSelectors"
 _NFS_KEY = "tritonai-admission-webhook/policy.allowedNfsVolumes"
 _TOL_KEY_AND = "tritonai-admission-webhook/policy.tolerations"
 _PROHIBITED_KEY = "tritonai-admission-webhook/policy.prohibitedVolumeTypes"

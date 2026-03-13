@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..config import POLICY_PREFIX
 from .base import ConstraintParser, ConstraintSet
-from .nodelabel import NodeLabelConstraintParser
+from .nodeselectors import NodeSelectorsConstraintParser
 from .numeric import NumericConstraintParser
 
 # ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ CONSTRAINT_REGISTRY: dict[str, ConstraintParser] = {
     f"{POLICY_PREFIX}runAsGroup": NumericConstraintParser(),
     f"{POLICY_PREFIX}fsGroup": NumericConstraintParser(),
     f"{POLICY_PREFIX}supplementalGroups": NumericConstraintParser(),
-    f"{POLICY_PREFIX}nodeLabel": NodeLabelConstraintParser(),
+    f"{POLICY_PREFIX}nodeSelectors": NodeSelectorsConstraintParser(),
 }
 
 
