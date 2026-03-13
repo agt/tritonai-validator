@@ -14,6 +14,20 @@ from typing import Any
 
 from .base import Constraint, ConstraintParser, ConstraintSet, NegatedConstraint
 
+
+def negated_keys(constraint_sets: list[ConstraintSet]) -> set[str]:
+    """Return the set of label keys from all negated NodeSelectorsConstraints.
+
+    Used by the validator to check that prohibited keys do not appear in
+    nodeAffinity matchExpressions in addition to the pod's nodeSelector.
+    """
+    keys: set[str] = set()
+    for cs in constraint_sets:
+        for nc in cs._negated:
+            if isinstance(nc.inner, NodeSelectorsConstraint):
+                keys.add(nc.inner._key)
+    return keys
+
 _TOKEN_RE = re.compile(r"^([^=]+)=(.+)$")
 
 

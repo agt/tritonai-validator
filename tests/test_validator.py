@@ -1587,6 +1587,136 @@ class TestNegationIntegration:
 
 
 # ---------------------------------------------------------------------------
+# nodeSelectors — nodeAffinity prohibition for negated tokens
+# ---------------------------------------------------------------------------
+
+_NA_ANNS = {f"{_P}nodeSelectors": "!rack=gpu"}
+_NA_ANNS_MULTI = {f"{_P}nodeSelectors": "rack=cpu,!rack=gpu"}
+
+
+def _affinity_spec(key: str, op: str = "In", values: list | None = None) -> dict:
+    """Build a minimal pod spec with a nodeAffinity matchExpression."""
+    spec = _pod(
+        pod_sc={"runAsNonRoot": True},
+        containers=[_container(sc={"allowPrivilegeEscalation": False})],
+    )
+    spec["affinity"] = {
+        "nodeAffinity": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                    {"matchExpressions": [{"key": key, "operator": op, "values": values or []}]}
+                ]
+            }
+        }
+    }
+    return spec
+
+
+class TestNodeSelectorsNodeAffinityProhibition:
+
+    def test_prohibited_key_in_node_affinity_rejected(self):
+        """!rack=gpu → nodeAffinity using key 'rack' is denied."""
+        spec = _affinity_spec("rack")
+        result = validate_pod([_NA_ANNS], spec)
+        assert result.allowed is False
+        assert "rack" in result.message
+
+    def test_different_key_in_node_affinity_allowed(self):
+        """!rack=gpu → nodeAffinity using an unrelated key is allowed."""
+        spec = _affinity_spec("zone")
+        result = validate_pod([_NA_ANNS], spec)
+        assert result.allowed is True
+
+    def test_positive_only_constraint_does_not_block_affinity(self):
+        """rack=cpu (no negation) → nodeAffinity with key 'rack' is not blocked."""
+        anns = {f"{_P}nodeSelectors": "rack=cpu"}
+        spec = _affinity_spec("rack")
+        spec["nodeSelector"] = {"rack": "cpu"}
+        result = validate_pod([anns], spec)
+        assert result.allowed is True
+
+    def test_prohibited_key_in_second_term_rejected(self):
+        """Prohibited key in a later nodeSelectorTerm is caught."""
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"allowPrivilegeEscalation": False})],
+        )
+        spec["affinity"] = {
+            "nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {
+                    "nodeSelectorTerms": [
+                        {"matchExpressions": [{"key": "zone", "operator": "In", "values": []}]},
+                        {"matchExpressions": [{"key": "rack", "operator": "In", "values": []}]},
+                    ]
+                }
+            }
+        }
+        result = validate_pod([_NA_ANNS], spec)
+        assert result.allowed is False
+        assert "rack" in result.message
+
+    def test_no_affinity_block_allowed(self):
+        """!rack=gpu but pod has no affinity at all → allowed (nodeSelector check applies)."""
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"allowPrivilegeEscalation": False})],
+        )
+        result = validate_pod([_NA_ANNS], spec)
+        assert result.allowed is True
+
+    def test_mixed_negation_prohibited_key_rejected(self):
+        """rack=cpu,!rack=gpu → nodeAffinity using 'rack' is still denied."""
+        spec = _affinity_spec("rack")
+        spec["nodeSelector"] = {"rack": "cpu"}
+        result = validate_pod([_NA_ANNS_MULTI], spec)
+        assert result.allowed is False
+        assert "rack" in result.message
+
+    def test_prohibited_key_in_preferred_affinity_rejected(self):
+        """!rack=gpu → preferredDuringScheduling with key 'rack' is denied."""
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"allowPrivilegeEscalation": False})],
+        )
+        spec["affinity"] = {
+            "nodeAffinity": {
+                "preferredDuringSchedulingIgnoredDuringExecution": [
+                    {
+                        "weight": 1,
+                        "preference": {
+                            "matchExpressions": [{"key": "rack", "operator": "In", "values": ["gpu"]}]
+                        },
+                    }
+                ]
+            }
+        }
+        result = validate_pod([_NA_ANNS], spec)
+        assert result.allowed is False
+        assert "rack" in result.message
+
+    def test_different_key_in_preferred_affinity_allowed(self):
+        """!rack=gpu → preferredDuringScheduling with an unrelated key is allowed."""
+        spec = _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"allowPrivilegeEscalation": False})],
+        )
+        spec["affinity"] = {
+            "nodeAffinity": {
+                "preferredDuringSchedulingIgnoredDuringExecution": [
+                    {
+                        "weight": 1,
+                        "preference": {
+                            "matchExpressions": [{"key": "zone", "operator": "In", "values": ["us-west-2"]}]
+                        },
+                    }
+                ]
+            }
+        }
+        result = validate_pod([_NA_ANNS], spec)
+        assert result.allowed is True
+
+
+# ---------------------------------------------------------------------------
 # NFS volume negation tests
 # ---------------------------------------------------------------------------
 
