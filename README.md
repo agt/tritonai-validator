@@ -74,8 +74,12 @@ data:
 ### Lookup behaviour
 
 - All `label=value` pairs on the subject namespace are converted to "label.value" keys and are checked against the index.
-- If **one or more** entries match, their policy ConfigMaps are fetched and merged in **lexical order of the `label.value` key** (so conflicts resolve deterministically: the lexically-last matching label wins). The namespace's own `tritonai-admission-webhook/` annotations are then merged on top, so namespace annotations override ConfigMap entries on conflict. This allows per-namespace overrides without a separate ConfigMap.
-- If **no** index entry matches, the webhook falls back to the namespace's own annotations (existing behaviour).
+- If **one or more** entries match, their policy ConfigMaps are fetched in **lexical order of the `label.value` key** and each becomes its own **policy layer**.  The namespace's own `tritonai-admission-webhook/` annotations are **always appended as a final layer**, so namespace administrators can add further restrictions without a separate ConfigMap.
+- If **no** index entry matches, the namespace's own annotations form the single layer.
+
+**AND semantics across layers**: the validator requires a pod to satisfy **every** layer independently — a pod that satisfies one ConfigMap policy but violates another is rejected.  A pod must satisfy the union of all constraints from all layers.
+
+The mutator still merges all layers into a single dict (last-writer-wins) for default injection, so namespace annotations take precedence when injecting defaults.
 
 ### Caching
 
@@ -89,7 +93,9 @@ Both the index ConfigMap and each policy ConfigMap are cached for `POLICY_CACHE_
 The following constraints are **always enforced** on every pod that passes through the
 Validation webhook.  They are not configurable via namespace annotations.
 
-The Mutation webhook will also preemptively set `securityContext.runAsNonRoot: true` for each Pod missing that attribute.  (A pod explicitly configured with `securityContext.runAsNonRoot: false` will pass through to the Validator where it will be rejected.)
+The Mutation webhook also preemptively injects two fields on pods missing them:
+- `securityContext.runAsNonRoot: true` at the pod level (a pod explicitly configured with `false` passes through to the Validator where it will be rejected).
+- `securityContext.allowPrivilegeEscalation: false` on every container, initContainer, and ephemeralContainer (a container explicitly configured with `true` passes through to the Validator where it will be rejected).
 
 ### Pod-level
 
@@ -106,7 +112,7 @@ The Mutation webhook will also preemptively set `securityContext.runAsNonRoot: t
 
 | Field | Allowed values |
 |---|---|
-| `securityContext.allowPrivilegeEscalation` | absent or `false` |
+| `securityContext.allowPrivilegeEscalation` | explicitly `false` (mutator injects when absent) |
 | `securityContext.privileged` | absent or `false` |
 | `securityContext.capabilities.add` | absent, empty, or `["NET_BIND_SERVICE"]` only |
 | `securityContext.procMount` | absent, `""`, or `"Default"` |
@@ -305,7 +311,7 @@ Restricted is cumulative — it includes all Baseline controls above, plus the f
 |---------|------------------|-------------------|----------------|-------|
 | *(all Baseline controls)* | — | *(see table above)* | *(as above)* | — |
 | Volume Types | `spec.volumes[*]` | Only `configMap`, `csi`, `downwardAPI`, `emptyDir`, `ephemeral`, `persistentVolumeClaim`, `projected`, `secret` | ⚙️ Configurable  | The hardcoded allowed set includes extra types not permitted by Restricted: `nfs`, `image`, `serviceAccountToken`, `clusterTrustBundle`, `podCertificate`. These can be excluded using `tritonai-admission-webhook/policy.prohibitedVolumeTypes`, reducing the effective set to `configMap`, `downwardAPI`, `emptyDir`, `persistentVolumeClaim`, `projected`, `secret`. However, `csi` and `ephemeral` — which Restricted allows — are not in the webhook's base set and cannot be added via annotation, so pods requiring those types will always be rejected. |
-| Privilege Escalation | `spec.containers[*].securityContext.allowPrivilegeEscalation`, init/ephemeral containers | Must be explicitly `false` | ⚠️ Partial | The webhook rejects any value other than `false` (hardcoded), but it also accepts the field being absent (treated as `false` by k8s API) |
+| Privilege Escalation | `spec.containers[*].securityContext.allowPrivilegeEscalation`, init/ephemeral containers | Must be explicitly `false` | ✅ Enforced | The mutator unconditionally injects `allowPrivilegeEscalation: false` on every container when the field is absent; the validator then requires the field to be explicitly `false`. |
 | Running as Non-root (`runAsNonRoot`) | `spec.securityContext.runAsNonRoot`, `spec.containers[*].securityContext.runAsNonRoot`, init/ephemeral containers | `true` at pod or container level | ✅ Enforced | Hardcoded: `runAsNonRoot` must be `true` at pod level or on every container individually. The mutator unconditionally injects `true` when the field is absent. |
 | Running as Non-root user (`runAsUser != 0`) | `spec.securityContext.runAsUser`, `spec.containers[*].securityContext.runAsUser`, init/ephemeral containers | Any non-zero value, or `undefined/null` | ⚙️ Configurable | The webhook enforces `runAsUser` through `tritonai-admission-webhook/policy.runAsUser`. Setting that annotation to `">0"` (or any constraint that excludes `0`) satisfies this control. There is no hardcoded default preventing UID 0; compliance depends entirely on the namespace annotation. |
 | Seccomp (Restricted) | `spec.securityContext.seccompProfile.type`, `spec.containers[*].securityContext.seccompProfile.type`, init/ephemeral containers | Must be `RuntimeDefault` or `Localhost` (absence is not permitted) | ❌ Not enforced | Seccomp profile type is not inspected. Under Restricted, omitting the field is a violation; the webhook cannot enforce this without new logic. |
