@@ -12,12 +12,16 @@ Policy resolution order
    (``POLICY_INDEX_CONFIGMAP`` in ``WEBHOOK_NAMESPACE``).  Any matching
    entries identify policy ConfigMaps whose data stands in for namespace
    annotations.
-3. If one or more matches are found, fetch those policy ConfigMaps and
-   merge their data in lexical order of the matching ``label=value`` key
-   (later entries override earlier ones for the same annotation key).
-   Return the merged dict — namespace annotations are not consulted.
-4. If no index entries match, fall back to the namespace's own annotations
-   filtered to the ``ANNOTATION_NS`` prefix (existing behaviour).
+3. If one or more matches are found, fetch those policy ConfigMaps.  Each
+   ConfigMap becomes its own annotation layer (in lexical order of the
+   matching ``label=value`` key).  The namespace's own annotations are
+   appended as an additional layer.
+4. If no index entries match, the namespace's own annotations form the
+   single layer.
+
+The caller receives a ``list[dict[str, str]]`` — one dict per source layer.
+Validators apply AND semantics across layers (a pod must satisfy all layers).
+The mutator merges layers before use via ``merge_annotation_layers()``.
 
 Both the index ConfigMap and each policy ConfigMap are cached for
 ``POLICY_CACHE_TTL`` seconds (default 10 minutes).  On fetch errors the
@@ -197,21 +201,20 @@ def _get_policy_cm(name: str) -> dict[str, str]:
     return data
 
 
-def _resolve_configmap_policy(ns_labels: dict[str, str]) -> dict[str, str] | None:
-    """Return merged policy annotations sourced from ConfigMaps, or None.
+def _resolve_configmap_policy(ns_labels: dict[str, str]) -> list[dict[str, str]]:
+    """Return per-ConfigMap annotation layers matched by namespace labels.
 
     For each ``label=value`` present on the subject namespace, checks the
     policy index for a matching entry.  All matching policy ConfigMaps are
-    fetched and merged in **lexical order of the** ``label=value`` **key**
-    (so that conflicts are resolved deterministically: the lexically-last
-    matching label wins).
+    fetched in **lexical order of the** ``label=value`` **key** and returned
+    as individual dicts so that callers can apply AND semantics across layers.
 
-    Returns ``None`` when the index is empty or no namespace label matches
-    any index entry, so the caller can fall back to namespace annotations.
+    Returns an empty list when the index is empty or no namespace label
+    matches any index entry.
     """
     index = _get_index()
     if not index:
-        return None
+        return []
 
     # Collect (label.value, configmap_name) pairs for all matching labels.
     matches: list[tuple[str, str]] = []
@@ -222,29 +225,30 @@ def _resolve_configmap_policy(ns_labels: dict[str, str]) -> dict[str, str] | Non
             matches.append((lookup_key, cm_name))
 
     if not matches:
-        return None
+        return []
 
-    # Merge in lexical order of the label=value string.
+    # Return one layer per ConfigMap, in lexical order of the label=value string.
     matches.sort(key=lambda pair: pair[0])
-    merged: dict[str, str] = {}
+    layers: list[dict[str, str]] = []
     for lookup_key, cm_name in matches:
         logger.debug(
             "Namespace label %r matched policy ConfigMap %r", lookup_key, cm_name
         )
-        merged.update(_get_policy_cm(cm_name))
+        layers.append(_get_policy_cm(cm_name))
 
-    return merged
+    return layers
 
 
-def _fetch_namespace_security_annotations(namespace: str) -> dict[str, str]:
-    """Synchronous implementation that fetches namespace annotations.
+def _fetch_namespace_security_annotations(namespace: str) -> list[dict[str, str]]:
+    """Synchronous implementation that fetches namespace annotation layers.
 
-    Tries ConfigMap-based policy lookup first (via the index); if no
-    index entry matches the namespace's labels, falls back to the
-    namespace's own annotations filtered to the ``ANNOTATION_NS`` prefix.
+    Returns an ordered list of per-source annotation dicts (each filtered to
+    the ``ANNOTATION_NS`` prefix):
+      - One dict per matching ConfigMap, in lexical order of label=value key
+      - One dict for the namespace's own annotations (always appended last)
 
-    Returns an empty dict on errors so the webhook can emit a clear
-    rejection message rather than a 500.
+    Returns a list containing a single empty dict on errors so the webhook
+    emits a clear rejection message rather than a 500.
     """
     try:
         api = _get_core_v1_api()
@@ -255,29 +259,39 @@ def _fetch_namespace_security_annotations(namespace: str) -> dict[str, str]:
         logger.error(
             "Failed to fetch namespace %r: %s %s", namespace, exc.status, exc.reason
         )
-        return {}
+        return [{}]
     except Exception:
         logger.exception("Unexpected error fetching namespace %r", namespace)
-        return {}
+        return [{}]
 
     ns_own = {k: v for k, v in annotations.items() if k.startswith(ANNOTATION_NS)}
+    cm_layers = _resolve_configmap_policy(labels)
+    return [*cm_layers, ns_own]
 
-    cm_policy = _resolve_configmap_policy(labels)
-    if cm_policy is not None:
-        # Merge: namespace annotations override ConfigMap entries on conflict.
-        return {**cm_policy, **ns_own}
-
-    return ns_own
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-async def get_namespace_security_annotations(namespace: str) -> dict[str, str]:
-    """Return a dict of ``<ANNOTATION_PREFIX>/*`` annotations from *namespace*.
+def merge_annotation_layers(layers: list[dict[str, str]]) -> dict[str, str]:
+    """Merge annotation layers left-to-right (last writer wins).
 
-    Runs the blocking Kubernetes API call in a thread pool via
-    ``asyncio.to_thread()`` so it does not block the event loop.
+    Used by the mutator, which injects per-namespace defaults and benefits
+    from namespace annotations taking precedence over ConfigMap entries.
+    Validators should use AND semantics instead (see ``validate_pod``).
+    """
+    merged: dict[str, str] = {}
+    for layer in layers:
+        merged.update(layer)
+    return merged
+
+
+async def get_namespace_security_annotations(namespace: str) -> list[dict[str, str]]:
+    """Return per-source annotation layers from *namespace*.
+
+    Each element is a ``dict[str, str]`` containing the ``<ANNOTATION_PREFIX>/*``
+    annotations from one policy source (ConfigMap or namespace).  Runs the
+    blocking Kubernetes API call in a thread pool via ``asyncio.to_thread()``.
     """
     return await asyncio.to_thread(_fetch_namespace_security_annotations, namespace)

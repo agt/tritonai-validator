@@ -143,21 +143,22 @@ def _validate_required_scalar(
     field_name: str,
     spec: FieldSpec,
     pod_spec: dict[str, Any],
-    constraint_set: ConstraintSet,
+    constraint_sets: list[ConstraintSet],
 ) -> list[str]:
-    """Validate a REQUIRED_SCALAR field (e.g. runAsUser, allowPrivilegeEscalation)."""
+    """Validate a REQUIRED_SCALAR field against all active constraint sets (AND semantics)."""
     errors: list[str] = []
     pod_sc = _pod_sc(pod_spec)
     pod_value = spec.extract(pod_sc)
     pod_has_value = pod_value is not None
 
-    # Validate pod-level value if present
+    # Validate pod-level value if present — must satisfy every constraint set
     if pod_has_value:
-        if not constraint_set.matches(pod_value):
-            errors.append(
-                f"Pod securityContext.{field_name}={pod_value!r} does not satisfy "
-                f"constraint [{constraint_set.description()}]"
-            )
+        for cs in constraint_sets:
+            if not cs.matches(pod_value):
+                errors.append(
+                    f"Pod securityContext.{field_name}={pod_value!r} does not satisfy "
+                    f"constraint [{cs.description()}]"
+                )
 
     for container in _all_containers(pod_spec):
         cname = _container_name(container)
@@ -165,17 +166,19 @@ def _validate_required_scalar(
         c_value = spec.extract(csc)
 
         if c_value is not None:
-            # Container sets the field → must match regardless
-            if not constraint_set.matches(c_value):
-                errors.append(
-                    f"Container {cname!r} securityContext.{field_name}={c_value!r} "
-                    f"does not satisfy constraint [{constraint_set.description()}]"
-                )
+            # Container sets the field → must match every constraint set
+            for cs in constraint_sets:
+                if not cs.matches(c_value):
+                    errors.append(
+                        f"Container {cname!r} securityContext.{field_name}={c_value!r} "
+                        f"does not satisfy constraint [{cs.description()}]"
+                    )
         elif not pod_has_value:
             # Pod-level absent AND container doesn't set it → required
+            all_desc = ", ".join(cs.description() for cs in constraint_sets)
             errors.append(
                 f"Container {cname!r} must set securityContext.{field_name} "
-                f"(no pod-level default); constraint: [{constraint_set.description()}]"
+                f"(no pod-level default); constraint: [{all_desc}]"
             )
 
     return errors
@@ -185,11 +188,11 @@ def _validate_optional_scalar(
     field_name: str,
     spec: FieldSpec,
     pod_spec: dict[str, Any],
-    constraint_set: ConstraintSet,
+    constraint_sets: list[ConstraintSet],
 ) -> list[str]:
-    """Validate an OPTIONAL_SCALAR field (e.g. fsGroup).
+    """Validate an OPTIONAL_SCALAR field against all active constraint sets.
 
-    Absent everywhere → OK.  Present → must match.
+    Absent everywhere → OK.  Present → must match every constraint set.
     Note: fsGroup and supplementalGroups are pod-scope only in Kubernetes;
     container securityContexts do not carry these fields.
     """
@@ -197,11 +200,13 @@ def _validate_optional_scalar(
     pod_sc = _pod_sc(pod_spec)
     pod_value = spec.extract(pod_sc)
 
-    if pod_value is not None and not constraint_set.matches(pod_value):
-        errors.append(
-            f"Pod securityContext.{field_name}={pod_value!r} does not satisfy "
-            f"constraint [{constraint_set.description()}]"
-        )
+    if pod_value is not None:
+        for cs in constraint_sets:
+            if not cs.matches(pod_value):
+                errors.append(
+                    f"Pod securityContext.{field_name}={pod_value!r} does not satisfy "
+                    f"constraint [{cs.description()}]"
+                )
 
     return errors
 
@@ -210,11 +215,11 @@ def _validate_optional_list(
     field_name: str,
     spec: FieldSpec,
     pod_spec: dict[str, Any],
-    constraint_set: ConstraintSet,
+    constraint_sets: list[ConstraintSet],
 ) -> list[str]:
-    """Validate an OPTIONAL_LIST field (e.g. supplementalGroups).
+    """Validate an OPTIONAL_LIST field against all active constraint sets.
 
-    Absent or empty → OK.  Each element present → must match.
+    Absent or empty → OK.  Each element present → must match every constraint set.
     """
     errors: list[str] = []
     pod_sc = _pod_sc(pod_spec)
@@ -222,11 +227,12 @@ def _validate_optional_list(
 
     if values:  # None or [] → satisfied
         for v in values:
-            if not constraint_set.matches(v):
-                errors.append(
-                    f"Pod securityContext.{field_name} entry {v!r} does not satisfy "
-                    f"constraint [{constraint_set.description()}]"
-                )
+            for cs in constraint_sets:
+                if not cs.matches(v):
+                    errors.append(
+                        f"Pod securityContext.{field_name} entry {v!r} does not satisfy "
+                        f"constraint [{cs.description()}]"
+                    )
 
     return errors
 
@@ -235,13 +241,13 @@ def _validate_node_selector(
     field_name: str,
     spec: FieldSpec,
     pod_spec: dict[str, Any],
-    constraint_set: ConstraintSet,
+    constraint_sets: list[ConstraintSet],
 ) -> list[str]:
-    """Validate NODE_SELECTOR behavior for the nodeLabel annotation.
+    """Validate NODE_SELECTOR behavior against all active constraint sets.
 
     Rules:
     1. pod.spec.nodeName must be absent — direct node binding bypasses nodeSelector.
-    2. pod.spec.nodeSelector must contain at least one entry matching any constraint token.
+    2. pod.spec.nodeSelector must satisfy every active constraint set.
     """
     errors: list[str] = []
 
@@ -253,18 +259,19 @@ def _validate_node_selector(
         )
 
     node_selector: dict[str, str] = pod_spec.get("nodeSelector") or {}
-    if not constraint_set.matches(node_selector):
-        errors.append(
-            f"Pod nodeSelector {node_selector!r} does not satisfy "
-            f"nodeLabel constraint [{constraint_set.description()}]"
-        )
+    for cs in constraint_sets:
+        if not cs.matches(node_selector):
+            errors.append(
+                f"Pod nodeSelector {node_selector!r} does not satisfy "
+                f"nodeLabel constraint [{cs.description()}]"
+            )
 
     return errors
 
 
 _BEHAVIOR_HANDLERS: dict[
     FieldBehavior,
-    Callable[[str, FieldSpec, dict[str, Any], ConstraintSet], list[str]],
+    Callable[[str, FieldSpec, dict[str, Any], list[ConstraintSet]], list[str]],
 ] = {
     FieldBehavior.REQUIRED_SCALAR: _validate_required_scalar,
     FieldBehavior.OPTIONAL_SCALAR: _validate_optional_scalar,
@@ -383,14 +390,15 @@ _PROHIBITED_VOLUME_TYPES_KEY = f"{POLICY_PREFIX}prohibitedVolumeTypes"
 
 def _validate_volume_types(
     pod_spec: dict[str, Any],
-    namespace_annotations: dict[str, str],
+    annotation_layers: list[dict[str, str]],
 ) -> list[str]:
     """Validate volume types and env/envFrom sources against the prohibitedVolumeTypes annotation.
 
-    The base permitted volume type set is _ALLOWED_VOLUME_TYPES.  The namespace
-    annotation prohibitedVolumeTypes may further restrict it by listing comma-separated
-    type names to remove.  A missing or empty annotation means no additional restrictions
-    beyond the base set.
+    The base permitted volume type set is _ALLOWED_VOLUME_TYPES.  Any layer's
+    prohibitedVolumeTypes annotation may further restrict it.  A type prohibited
+    by ANY layer is prohibited overall (AND semantics across layers).
+    A missing or empty annotation in a layer means no additional restriction from
+    that layer.
 
     When a type is prohibited, the corresponding env/envFrom sources are also blocked
     across all containers, initContainers, and ephemeralContainers:
@@ -399,20 +407,21 @@ def _validate_volume_types(
       secret      → env[].valueFrom.secretKeyRef,    envFrom[].secretRef
       downwardAPI → env[].valueFrom.fieldRef,         env[].valueFrom.resourceFieldRef
 
-    Type names in the annotation that are not in the base permitted set are
+    Type names in an annotation that are not in the base permitted set are
     ignored (with a warning), since they were never allowed to begin with.
     """
-    raw = namespace_annotations.get(_PROHIBITED_VOLUME_TYPES_KEY, "")
     prohibited: frozenset[str] = frozenset()
-    if raw.strip():
-        names = [t.strip() for t in raw.split(",") if t.strip()]
-        unknown = [n for n in names if n not in _ALLOWED_VOLUME_TYPES]
-        for u in unknown:
-            logger.warning(
-                "Annotation %r lists %r which is not in the base permitted volume type set; ignored.",
-                _PROHIBITED_VOLUME_TYPES_KEY, u,
-            )
-        prohibited = frozenset(n for n in names if n in _ALLOWED_VOLUME_TYPES)
+    for layer in annotation_layers:
+        raw = layer.get(_PROHIBITED_VOLUME_TYPES_KEY, "")
+        if raw.strip():
+            names = [t.strip() for t in raw.split(",") if t.strip()]
+            unknown = [n for n in names if n not in _ALLOWED_VOLUME_TYPES]
+            for u in unknown:
+                logger.warning(
+                    "Annotation %r lists %r which is not in the base permitted volume type set; ignored.",
+                    _PROHIBITED_VOLUME_TYPES_KEY, u,
+                )
+            prohibited |= frozenset(n for n in names if n in _ALLOWED_VOLUME_TYPES)
 
     effective_allowed = _ALLOWED_VOLUME_TYPES - prohibited
 
@@ -485,27 +494,20 @@ _NFS_ANNOTATION_KEY = f"{POLICY_PREFIX}allowedNfsVolumes"
 
 def _validate_nfs_volumes(
     pod_spec: dict[str, Any],
-    namespace_annotations: dict[str, str],
+    annotation_layers: list[dict[str, str]],
 ) -> list[str]:
-    """Validate pod NFS volumes against the allowedNfsVolumes namespace annotation.
+    """Validate pod NFS volumes against the allowedNfsVolumes annotation across all layers.
 
-    A missing annotation is treated as an empty string (no NFS volumes permitted).
+    AND semantics across layers: a volume must be permitted by every layer that
+    carries the annotation.  A layer with a missing annotation is treated as
+    "no NFS volumes permitted" for that layer.
 
-    Each NFS volume's "server:/path" is matched against the comma-separated list of
-    glob patterns in the annotation.  At least one positive (non-negated) pattern
-    must match, and no negated pattern (``!pattern``) may match.
-
-    Negation semantics: a ``!server:/path`` pattern means **none** of the pod's
-    NFS volumes may match that pattern.
+    Within each layer, at least one positive (non-negated) pattern must match,
+    and no negated pattern (``!pattern``) may match.
     """
     nfs_volumes = [v for v in (pod_spec.get("volumes") or []) if "nfs" in v]
     if not nfs_volumes:
         return []
-
-    raw = namespace_annotations.get(_NFS_ANNOTATION_KEY, "")
-    tokens = [t.strip() for t in raw.split(",") if t.strip()] if raw.strip() else []
-    positive = [t for t in tokens if not t.startswith("!")]
-    negated = [t[1:].strip() for t in tokens if t.startswith("!")]
 
     errors: list[str] = []
     for volume in nfs_volumes:
@@ -515,27 +517,36 @@ def _validate_nfs_volumes(
         path = nfs.get("path", "")
         resource = f"{server}:{path}"
 
-        # Check negated patterns first: none may match
-        for pat in negated:
-            if fnmatch.fnmatch(resource, pat):
-                errors.append(
-                    f"NFS volume {vol_name!r} ({resource!r}) matches negated pattern "
-                    f"'!{pat}' in {_NFS_ANNOTATION_KEY!r}"
-                )
-                break  # one negation failure is enough for this volume
-        else:
-            # No negation hit; check positive patterns (if any exist, one must match)
-            if positive and not any(fnmatch.fnmatch(resource, p) for p in positive):
-                errors.append(
-                    f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
-                    f"{_NFS_ANNOTATION_KEY!r}"
-                )
-            elif not positive and not negated:
-                # No patterns at all → deny (original behavior)
-                errors.append(
-                    f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
-                    f"{_NFS_ANNOTATION_KEY!r}"
-                )
+        for layer in annotation_layers:
+            raw = layer.get(_NFS_ANNOTATION_KEY, "")
+            tokens = [t.strip() for t in raw.split(",") if t.strip()] if raw.strip() else []
+            positive = [t for t in tokens if not t.startswith("!")]
+            negated = [t[1:].strip() for t in tokens if t.startswith("!")]
+
+            # Check negated patterns first: none may match
+            blocked = False
+            for pat in negated:
+                if fnmatch.fnmatch(resource, pat):
+                    errors.append(
+                        f"NFS volume {vol_name!r} ({resource!r}) matches negated pattern "
+                        f"'!{pat}' in {_NFS_ANNOTATION_KEY!r}"
+                    )
+                    blocked = True
+                    break
+
+            if not blocked:
+                # Check positive patterns (if any exist, one must match)
+                if positive and not any(fnmatch.fnmatch(resource, p) for p in positive):
+                    errors.append(
+                        f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
+                        f"{_NFS_ANNOTATION_KEY!r}"
+                    )
+                elif not positive and not negated:
+                    # No patterns at all → deny (layer has no NFS allowlist)
+                    errors.append(
+                        f"NFS volume {vol_name!r} ({resource!r}) does not match any entry in "
+                        f"{_NFS_ANNOTATION_KEY!r}"
+                    )
 
     return errors
 
@@ -615,56 +626,61 @@ def _toleration_permitted(
 
 def _validate_tolerations(
     pod_spec: dict[str, Any],
-    namespace_annotations: dict[str, str],
+    annotation_layers: list[dict[str, str]],
 ) -> list[str]:
-    """Validate pod tolerations against the tolerations annotation.
+    """Validate pod tolerations against the tolerations annotation across all layers.
 
-    Annotation absent → no restriction; any (or no) tolerations are permitted.
-    Annotation present → every pod toleration must match at least one positive
-    (non-negated) entry (if any positive entries exist), and must **not** match
-    any negated (``!key=value:effect``) entry.
+    AND semantics across layers: a toleration must be permitted by every layer
+    that carries the annotation.  A layer without the annotation imposes no
+    restriction for that layer.
 
-    ``node.kubernetes.io/*`` tolerations are always implicitly permitted
-    and are never required to appear in the annotation.
+    Within each layer: annotation absent → no restriction; annotation present →
+    every pod toleration must match at least one positive (non-negated) entry
+    (if any positive entries exist), and must **not** match any negated entry.
+
+    ``node.kubernetes.io/*`` tolerations are always implicitly permitted.
     Each entry may use fnmatch-style globs in any field.
-    A value pattern of ``"*"`` additionally covers the ``Exists`` operator (no value).
+    A value pattern of ``"*"`` additionally covers the ``Exists`` operator.
     """
-    raw = namespace_annotations.get(_TOLERATIONS_KEY)
-    if raw is None:
-        return []
-
     tolerations = pod_spec.get("tolerations") or []
     if not tolerations:
         return []
 
-    try:
-        permitted, denied = _parse_permitted_tolerations(raw.strip())
-    except ValueError as exc:
-        return [f"Namespace annotation {_TOLERATIONS_KEY!r} is malformed: {exc}"]
-
     errors: list[str] = []
-    for tol in tolerations:
-        if _is_node_kubernetes_toleration(tol):
-            continue  # always implicitly permitted
+    for layer in annotation_layers:
+        raw = layer.get(_TOLERATIONS_KEY)
+        if raw is None:
+            continue  # this layer imposes no toleration restriction
 
-        # Check negated entries first: none may match
-        blocked = False
-        for kp, vp, ep in denied:
-            if _toleration_permitted(tol, kp, vp, ep):
-                errors.append(
-                    f"Pod toleration {tol!r} matches negated entry in "
-                    f"namespace annotation {_TOLERATIONS_KEY!r}"
-                )
-                blocked = True
-                break
+        try:
+            permitted, denied = _parse_permitted_tolerations(raw.strip())
+        except ValueError as exc:
+            errors.append(f"Namespace annotation {_TOLERATIONS_KEY!r} is malformed: {exc}")
+            continue
 
-        # If not blocked by negation, check positive entries
-        if not blocked and permitted:
-            if not any(_toleration_permitted(tol, kp, vp, ep) for kp, vp, ep in permitted):
-                errors.append(
-                    f"Pod toleration {tol!r} is not permitted by "
-                    f"namespace annotation {_TOLERATIONS_KEY!r}"
-                )
+        for tol in tolerations:
+            if _is_node_kubernetes_toleration(tol):
+                continue  # always implicitly permitted
+
+            # Check negated entries first: none may match
+            blocked = False
+            for kp, vp, ep in denied:
+                if _toleration_permitted(tol, kp, vp, ep):
+                    errors.append(
+                        f"Pod toleration {tol!r} matches negated entry in "
+                        f"namespace annotation {_TOLERATIONS_KEY!r}"
+                    )
+                    blocked = True
+                    break
+
+            # If not blocked by negation, check positive entries
+            if not blocked and permitted:
+                if not any(_toleration_permitted(tol, kp, vp, ep) for kp, vp, ep in permitted):
+                    errors.append(
+                        f"Pod toleration {tol!r} is not permitted by "
+                        f"namespace annotation {_TOLERATIONS_KEY!r}"
+                    )
+
     return errors
 
 
@@ -684,16 +700,18 @@ class ValidationResult:
 
 
 def validate_pod(
-    namespace_annotations: dict[str, str],
+    annotation_layers: list[dict[str, str]],
     pod_spec: dict[str, Any],
 ) -> ValidationResult:
-    """Validate *pod_spec* against the security constraints in *namespace_annotations*.
+    """Validate *pod_spec* against the security constraints in *annotation_layers*.
 
     Parameters
     ----------
-    namespace_annotations:
-        The ``<ANNOTATION_PREFIX>/*`` annotations scraped from the pod's namespace.
-        Keys are full annotation strings (e.g. ``"tritonai-admission-webhook/policy.runAsUser"``).
+    annotation_layers:
+        Ordered list of per-source annotation dicts (e.g. one per policy ConfigMap
+        then the namespace's own annotations).  Each dict contains only
+        ``<ANNOTATION_PREFIX>/*`` keys.  AND semantics are applied across layers:
+        the pod must satisfy every constraint from every layer.
     pod_spec:
         The ``spec`` sub-dict from the Pod's ``object`` in the AdmissionRequest.
 
@@ -701,27 +719,27 @@ def validate_pod(
     -------
     ValidationResult with ``allowed=True`` iff all constraints pass.
     """
-    # Collect annotations that match known constraint keys
-    active_constraints: dict[str, ConstraintSet] = {}
+    # Collect annotations that match known constraint keys.
+    # For each key, accumulate one ConstraintSet per layer that supplies it.
+    active_constraints: dict[str, list[ConstraintSet]] = {}
     parse_errors: list[str] = []
 
-    for annotation_key in CONSTRAINT_REGISTRY:
-        if annotation_key not in namespace_annotations:
-            continue
-        annotation_value = namespace_annotations[annotation_key]
-        try:
-            active_constraints[annotation_key] = parse_annotation(
-                annotation_key, annotation_value
-            )
-        except ValueError as exc:
-            parse_errors.append(
-                f"Namespace annotation {annotation_key!r} is malformed: {exc}"
-            )
+    for layer in annotation_layers:
+        for annotation_key in CONSTRAINT_REGISTRY:
+            if annotation_key not in layer:
+                continue
+            try:
+                cs = parse_annotation(annotation_key, layer[annotation_key])
+                active_constraints.setdefault(annotation_key, []).append(cs)
+            except ValueError as exc:
+                parse_errors.append(
+                    f"Namespace annotation {annotation_key!r} is malformed: {exc}"
+                )
 
     if parse_errors:
         return ValidationResult(allowed=False, errors=parse_errors)
 
-    # No security annotations → reject (policy must be explicit)
+    # No security annotations in any layer → reject (policy must be explicit)
     if not active_constraints:
         return ValidationResult(
             allowed=False,
@@ -731,9 +749,9 @@ def validate_pod(
             ],
         )
 
-    # Apply each active constraint
+    # Apply each active constraint — AND across all layers' ConstraintSets
     all_errors: list[str] = []
-    for annotation_key, constraint_set in active_constraints.items():
+    for annotation_key, constraint_set_list in active_constraints.items():
         field_suffix = annotation_key.removeprefix(POLICY_PREFIX)  # e.g. "runAsUser"
         spec = _FIELD_SPECS.get(field_suffix)
         if spec is None:
@@ -741,23 +759,23 @@ def validate_pod(
             continue
 
         handler = _BEHAVIOR_HANDLERS[spec.behavior]
-        field_errors = handler(field_suffix, spec, pod_spec, constraint_set)
+        field_errors = handler(field_suffix, spec, pod_spec, constraint_set_list)
         all_errors.extend(field_errors)
 
     # Apply hardcoded constraints (always enforced)
     all_errors.extend(_validate_hardcoded_constraints(pod_spec))
     _runasnonroot_cs = ConstraintSet([BooleanConstraint(True)])
     all_errors.extend(
-        _validate_required_scalar("runAsNonRoot", _FIELD_SPECS["runAsNonRoot"], pod_spec, _runasnonroot_cs)
+        _validate_required_scalar("runAsNonRoot", _FIELD_SPECS["runAsNonRoot"], pod_spec, [_runasnonroot_cs])
     )
 
     # Apply volume type constraint (hardcoded base set, optionally narrowed by annotation)
-    all_errors.extend(_validate_volume_types(pod_spec, namespace_annotations))
+    all_errors.extend(_validate_volume_types(pod_spec, annotation_layers))
 
     # Apply NFS volume constraint (annotation-driven, missing annotation = deny all NFS)
-    all_errors.extend(_validate_nfs_volumes(pod_spec, namespace_annotations))
+    all_errors.extend(_validate_nfs_volumes(pod_spec, annotation_layers))
 
     # Apply toleration allowlist (annotation-driven, missing annotation = no restriction)
-    all_errors.extend(_validate_tolerations(pod_spec, namespace_annotations))
+    all_errors.extend(_validate_tolerations(pod_spec, annotation_layers))
 
     return ValidationResult(allowed=len(all_errors) == 0, errors=all_errors)

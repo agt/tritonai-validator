@@ -31,7 +31,7 @@ from .models import (
     StatusDetails,
 )
 from .mutator import mutate_pod, mutate_pod_spec
-from .namespace_client import get_namespace_security_annotations
+from .namespace_client import get_namespace_security_annotations, merge_annotation_layers
 from .validator import validate_pod
 
 # ---------------------------------------------------------------------------
@@ -193,15 +193,15 @@ async def validate(request: Request) -> Response:
             return _json_response(_allow(uid))
 
     # Fetch namespace security annotations
-    ns_annotations = await get_namespace_security_annotations(namespace)
-    logger.debug("Namespace %r annotations: %s", namespace, ns_annotations)
+    annotation_layers = await get_namespace_security_annotations(namespace)
+    logger.debug("Namespace %r annotation layers (%d): %s", namespace, len(annotation_layers), annotation_layers)
 
     # For workloads, apply mutations so the validator sees post-mutation defaults
     if not is_pod:
-        pod_spec = mutate_pod_spec(ns_annotations, pod_spec)
+        pod_spec = mutate_pod_spec(merge_annotation_layers(annotation_layers), pod_spec)
 
     # Validate
-    result = validate_pod(ns_annotations, pod_spec)
+    result = validate_pod(annotation_layers, pod_spec)
 
     if result.allowed:
         logger.info(
@@ -274,8 +274,8 @@ async def mutate(request: Request) -> Response:
         # Nothing useful to mutate; validator will handle rejection if needed
         return _json_response(_allow(uid))
 
-    ns_annotations = await get_namespace_security_annotations(namespace)
-    patches = mutate_pod(ns_annotations, pod_spec)
+    annotation_layers = await get_namespace_security_annotations(namespace)
+    patches = mutate_pod(merge_annotation_layers(annotation_layers), pod_spec)
 
     if patches:
         logger.info(

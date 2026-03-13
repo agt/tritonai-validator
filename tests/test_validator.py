@@ -54,7 +54,7 @@ def _container(
 
 
 def test_no_annotations_rejects():
-    result = validate_pod({}, _pod())
+    result = validate_pod([{}], _pod())
     assert result.allowed is False
     assert "tritonai-admission-webhook" in result.message
 
@@ -69,34 +69,34 @@ class TestRunAsUser:
 
     def test_pod_level_match(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}, containers=[_container()])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_pod_level_no_match(self):
         spec = _pod(pod_sc={"runAsUser": 999}, containers=[_container()])
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsUser" in result.message
 
     def test_no_pod_sc_container_sets_matching(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": True})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_no_pod_sc_container_sets_non_matching(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 999})])
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
 
     def test_no_pod_sc_container_missing_field(self):
         """Container has a securityContext but not runAsUser → rejected."""
         spec = _pod(containers=[_container(sc={})])
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "must set" in result.message
 
     def test_no_pod_sc_container_no_sc_at_all(self):
         """Container has no securityContext at all → rejected."""
         spec = _pod(containers=[_container(sc=None)])
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
 
     def test_pod_sc_present_containers_override_ok(self):
@@ -105,7 +105,7 @@ class TestRunAsUser:
             pod_sc={"runAsUser": 1000, "runAsNonRoot": True},
             containers=[_container(sc={"runAsUser": 1000})],
         )
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_pod_sc_present_container_override_bad(self):
         """Pod SC present; container overrides with bad runAsUser → rejected."""
@@ -113,7 +113,7 @@ class TestRunAsUser:
             pod_sc={"runAsUser": 1000},
             containers=[_container(sc={"runAsUser": 999})],
         )
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
 
     def test_init_container_also_validated(self):
@@ -122,7 +122,7 @@ class TestRunAsUser:
             containers=[_container(sc={"runAsUser": 1000})],
             init_containers=[_container("init", sc={"runAsUser": 999})],
         )
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "init" in result.message
 
@@ -132,7 +132,7 @@ class TestRunAsUser:
             containers=[_container(sc={"runAsUser": 1000})],
             ephemeral_containers=[_container("debug", sc={"runAsUser": 999})],
         )
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "debug" in result.message
 
@@ -142,28 +142,28 @@ class TestRunAsUser:
             containers=[_container(sc={"runAsUser": 1000})],
             ephemeral_containers=[_container("debug", sc=None)],
         )
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
 
     def test_range_constraint(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": "1000,2000-3000"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 2500})])
-        assert validate_pod(annotations, spec).allowed is True
+        assert validate_pod([annotations], spec).allowed is True
 
     def test_range_constraint_fail(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": "1000,2000-3000"}
         spec = _pod(containers=[_container(sc={"runAsUser": 1500})])
-        assert validate_pod(annotations, spec).allowed is False
+        assert validate_pod([annotations], spec).allowed is False
 
     def test_greater_than_constraint(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": ">5000000"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 5000001})])
-        assert validate_pod(annotations, spec).allowed is True
+        assert validate_pod([annotations], spec).allowed is True
 
     def test_greater_than_boundary_fail(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": ">5000000"}
         spec = _pod(containers=[_container(sc={"runAsUser": 5000000})])
-        assert validate_pod(annotations, spec).allowed is False
+        assert validate_pod([annotations], spec).allowed is False
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +176,15 @@ class TestRunAsGroup:
 
     def test_pod_level_match(self):
         spec = _pod(pod_sc={"runAsGroup": 2000, "runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_container_required_when_no_pod_sc(self):
         spec = _pod(containers=[_container(sc=None)])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is False
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is False
 
     def test_container_with_correct_group(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsGroup": 2000})])
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
 
 # ---------------------------------------------------------------------------
@@ -197,19 +197,19 @@ class TestFsGroup:
 
     def test_absent_is_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_no_pod_sc_is_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_matching_value_ok(self):
         spec = _pod(pod_sc={"fsGroup": 1000, "runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_non_matching_value_rejected(self):
         spec = _pod(pod_sc={"fsGroup": 999, "runAsNonRoot": True})
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "fsGroup" in result.message
 
@@ -224,19 +224,19 @@ class TestSupplementalGroups:
 
     def test_absent_is_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_empty_list_is_ok(self):
         spec = _pod(pod_sc={"supplementalGroups": [], "runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_all_match(self):
         spec = _pod(pod_sc={"supplementalGroups": [1000, 2500, 3000], "runAsNonRoot": True})
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_one_fails(self):
         spec = _pod(pod_sc={"supplementalGroups": [1000, 9999], "runAsNonRoot": True})
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "supplementalGroups" in result.message
 
@@ -258,13 +258,13 @@ class TestMultipleConstraints:
             pod_sc={"runAsUser": 1000, "runAsGroup": 2000, "fsGroup": 3000, "runAsNonRoot": True},
             containers=[_container(sc={"runAsUser": 1000, "runAsGroup": 2000})],
         )
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_one_fails_causes_rejection(self):
         spec = _pod(
             pod_sc={"runAsUser": 1000, "runAsGroup": 9999, "fsGroup": 3000},  # wrong group
         )
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsGroup" in result.message
 
@@ -272,7 +272,7 @@ class TestMultipleConstraints:
         spec = _pod(
             pod_sc={"runAsUser": 999, "runAsGroup": 9999},  # both wrong
         )
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsUser" in result.message
         assert "runAsGroup" in result.message
@@ -287,7 +287,7 @@ class TestEdgeCases:
     def test_malformed_annotation_rejects(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": "foo,bar"}
         spec = _pod(pod_sc={"runAsUser": 1000})
-        result = validate_pod(annotations, spec)
+        result = validate_pod([annotations], spec)
         assert result.allowed is False
         assert "malformed" in result.message.lower()
 
@@ -299,7 +299,7 @@ class TestEdgeCases:
         }
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
         # Should pass based on the known constraint; the unknown key is ignored
-        assert validate_pod(annotations, spec).allowed is True
+        assert validate_pod([annotations], spec).allowed is True
 
     def test_multiple_containers_all_must_pass(self):
         annotations = {"tritonai-admission-webhook/policy.runAsUser": "1000"}
@@ -309,7 +309,7 @@ class TestEdgeCases:
                 _container("c2", sc={"runAsUser": 999}),  # bad
             ]
         )
-        result = validate_pod(annotations, spec)
+        result = validate_pod([annotations], spec)
         assert result.allowed is False
         assert "c2" in result.message
 
@@ -319,7 +319,7 @@ class TestEdgeCases:
             containers=[_container("c1", sc={"runAsUser": 1000})],
             ephemeral_containers=[_container("e1", sc={"runAsUser": 999})],  # bad
         )
-        result = validate_pod(annotations, spec)
+        result = validate_pod([annotations], spec)
         assert result.allowed is False
         assert "e1" in result.message
 
@@ -336,53 +336,53 @@ class TestNodeLabel:
     def test_matching_nodeselector_allowed(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
         spec["nodeSelector"] = {"partition": "a"}
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_extra_nodeselector_entries_allowed(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
         spec["nodeSelector"] = {"partition": "a", "zone": "us-west-2"}
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_wrong_nodeselector_value_rejected(self):
         spec = _pod()
         spec["nodeSelector"] = {"partition": "b"}
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "nodeSelector" in result.message
 
     def test_missing_nodeselector_rejected(self):
         spec = _pod()
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "nodeSelector" in result.message
 
     def test_empty_nodeselector_rejected(self):
         spec = _pod()
         spec["nodeSelector"] = {}
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
 
     def test_multi_token_first_value_matches(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
         spec["nodeSelector"] = {"rack": "b"}
-        assert validate_pod(self.MULTI_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.MULTI_ANNOTATIONS], spec).allowed is True
 
     def test_multi_token_second_value_matches(self):
         spec = _pod(pod_sc={"runAsNonRoot": True})
         spec["nodeSelector"] = {"rack": "c"}
-        assert validate_pod(self.MULTI_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.MULTI_ANNOTATIONS], spec).allowed is True
 
     def test_multi_token_no_match_rejected(self):
         spec = _pod()
         spec["nodeSelector"] = {"rack": "a"}
-        result = validate_pod(self.MULTI_ANNOTATIONS, spec)
+        result = validate_pod([self.MULTI_ANNOTATIONS], spec)
         assert result.allowed is False
 
     def test_nodename_rejected_when_nodelabel_enforced(self):
         spec = _pod()
         spec["nodeName"] = "node-42"
         spec["nodeSelector"] = {"partition": "a"}
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "nodeName" in result.message
 
@@ -390,14 +390,14 @@ class TestNodeLabel:
         spec = _pod(pod_sc={"runAsNonRoot": True})
         spec["nodeSelector"] = {"partition": "a"}
         # nodeName not set at all
-        assert validate_pod(self.ANNOTATIONS, spec).allowed is True
+        assert validate_pod([self.ANNOTATIONS], spec).allowed is True
 
     def test_nodename_and_bad_nodeselector_both_reported(self):
         """Both nodeName violation and nodeSelector mismatch should be reported."""
         spec = _pod()
         spec["nodeName"] = "node-42"
         spec["nodeSelector"] = {"rack": "wrong"}
-        result = validate_pod(self.ANNOTATIONS, spec)
+        result = validate_pod([self.ANNOTATIONS], spec)
         assert result.allowed is False
         assert "nodeName" in result.message
         assert "nodeSelector" in result.message
@@ -409,13 +409,13 @@ class TestNodeLabel:
         }
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
         spec["nodeSelector"] = {"partition": "gpu"}
-        assert validate_pod(annotations, spec).allowed is True
+        assert validate_pod([annotations], spec).allowed is True
 
     def test_nodelabel_malformed_annotation_rejected(self):
         annotations = {"tritonai-admission-webhook/policy.nodeLabel": "no-equals-sign"}
         spec = _pod()
         spec["nodeSelector"] = {"partition": "a"}
-        result = validate_pod(annotations, spec)
+        result = validate_pod([annotations], spec)
         assert result.allowed is False
         assert "malformed" in result.message.lower()
 
@@ -437,7 +437,7 @@ class TestHardcodedConstraints:
     # ------------------------------------------------------------------ #
 
     def test_clean_pod_allowed(self):
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _ALWAYS_SPEC_OK).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _ALWAYS_SPEC_OK).allowed is True
 
     # ------------------------------------------------------------------ #
     # allowPrivilegeEscalation
@@ -445,15 +445,15 @@ class TestHardcodedConstraints:
 
     def test_allow_privilege_escalation_false_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_allow_privilege_escalation_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_allow_privilege_escalation_true_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "allowPrivilegeEscalation": True})])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "allowPrivilegeEscalation" in result.message
 
@@ -463,15 +463,15 @@ class TestHardcodedConstraints:
 
     def test_privileged_false_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "privileged": False})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_privileged_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_privileged_true_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "privileged": True})])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "privileged" in result.message
 
@@ -481,26 +481,26 @@ class TestHardcodedConstraints:
 
     def test_capabilities_add_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_capabilities_add_empty_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "capabilities": {"add": []}})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_capabilities_add_net_bind_service_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "capabilities": {"add": ["NET_BIND_SERVICE"]}})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_capabilities_add_disallowed_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "capabilities": {"add": ["SYS_ADMIN"]}})])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "capabilities" in result.message
 
     def test_capabilities_add_mixed_rejected(self):
         """NET_BIND_SERVICE alongside a disallowed capability → rejected."""
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "capabilities": {"add": ["NET_BIND_SERVICE", "SYS_PTRACE"]}})])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
 
     # ------------------------------------------------------------------ #
@@ -509,19 +509,19 @@ class TestHardcodedConstraints:
 
     def test_proc_mount_absent_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_proc_mount_default_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "procMount": "Default"})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_proc_mount_empty_string_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000, "procMount": ""})])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_proc_mount_unmasked_rejected(self):
         spec = _pod(containers=[_container(sc={"runAsUser": 1000, "procMount": "Unmasked"})])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "procMount" in result.message
 
@@ -531,15 +531,15 @@ class TestHardcodedConstraints:
 
     def test_sysctls_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_sysctls_empty_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "sysctls": [], "runAsNonRoot": True})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_sysctls_nonempty_rejected(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "sysctls": [{"name": "net.ipv4.tcp_syncookies", "value": "1"}]})
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "sysctls" in result.message
 
@@ -549,50 +549,50 @@ class TestHardcodedConstraints:
 
     def test_host_network_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_network_false_ok(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}), "hostNetwork": False}
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_network_true_rejected(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostNetwork": True}
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "hostNetwork" in result.message
 
     def test_host_pid_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_pid_false_ok(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}), "hostPID": False}
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_pid_true_rejected(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostPID": True}
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "hostPID" in result.message
 
     def test_host_ipc_absent_ok(self):
         spec = _pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_ipc_false_ok(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000, "runAsNonRoot": True}), "hostIPC": False}
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_host_ipc_true_rejected(self):
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostIPC": True}
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "hostIPC" in result.message
 
     def test_multiple_host_fields_all_errors_reported(self):
         """All three violations should be reported in a single rejection."""
         spec = {**_pod(pod_sc={"runAsUser": 1000}), "hostNetwork": True, "hostPID": True, "hostIPC": True}
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "hostNetwork" in result.message
         assert "hostPID" in result.message
@@ -607,7 +607,7 @@ class TestHardcodedConstraints:
             containers=[_container(sc={"runAsUser": 1000})],
             init_containers=[_container("init", sc={"runAsUser": 1000, "privileged": True})],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "init" in result.message
 
@@ -616,7 +616,7 @@ class TestHardcodedConstraints:
             containers=[_container(sc={"runAsUser": 1000})],
             ephemeral_containers=[_container("debug", sc={"runAsUser": 1000, "allowPrivilegeEscalation": True})],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "debug" in result.message
 
@@ -626,15 +626,15 @@ class TestHardcodedConstraints:
 
     def test_host_port_absent_ok(self):
         c = _container(sc={"runAsUser": 1000}, ports=[{"containerPort": 8080}])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     def test_host_port_zero_ok(self):
         c = _container(sc={"runAsUser": 1000}, ports=[{"containerPort": 8080, "hostPort": 0}])
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     def test_host_port_set_rejected(self):
         c = _container(sc={"runAsUser": 1000}, ports=[{"containerPort": 8080, "hostPort": 8080}])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
+        result = validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
         assert result.allowed is False
         assert "hostPort" in result.message
         assert "8080" in result.message
@@ -645,14 +645,14 @@ class TestHardcodedConstraints:
             {"containerPort": 8080},
             {"containerPort": 9090, "hostPort": 9090},
         ])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
+        result = validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c]))
         assert result.allowed is False
         assert "9090" in result.message
 
     def test_host_port_in_init_container_rejected(self):
         main = _container(sc={"runAsUser": 1000})
         init = _container("init", sc={"runAsUser": 1000}, ports=[{"containerPort": 80, "hostPort": 80}])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, _pod(
+        result = validate_pod([_ALWAYS_ANNOTATIONS], _pod(
             pod_sc={"runAsNonRoot": True}, containers=[main], init_containers=[init]
         ))
         assert result.allowed is False
@@ -660,7 +660,7 @@ class TestHardcodedConstraints:
         assert "hostPort" in result.message
 
     def test_host_port_no_ports_section_ok(self):
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _ALWAYS_SPEC_OK).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _ALWAYS_SPEC_OK).allowed is True
 
 
 # ---------------------------------------------------------------------------
@@ -677,18 +677,18 @@ class TestRunAsNonRoot:
 
     def test_pod_level_true_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_pod_level_false_rejected(self):
         spec = _pod(pod_sc={"runAsNonRoot": False, "runAsUser": 1000})
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsNonRoot" in result.message
 
     def test_pod_level_absent_container_not_set_rejected(self):
         """No pod-level default and container doesn't set it → rejected."""
         spec = _pod(containers=[_container(sc={"runAsUser": 1000})])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsNonRoot" in result.message
 
@@ -702,7 +702,7 @@ class TestRunAsNonRoot:
             pod_sc={"runAsNonRoot": True},
             containers=[_container(sc={"runAsUser": 1000})],
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_container_explicit_false_still_rejected_even_with_pod_true(self):
         """Container explicitly setting False overrides pod default and must be rejected."""
@@ -710,7 +710,7 @@ class TestRunAsNonRoot:
             pod_sc={"runAsNonRoot": True},
             containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": False})],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsNonRoot" in result.message
 
@@ -723,13 +723,13 @@ class TestRunAsNonRoot:
         spec = _pod(
             containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": True})],
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_container_sets_false_rejected(self):
         spec = _pod(
             containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": False})],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsNonRoot" in result.message
 
@@ -741,7 +741,7 @@ class TestRunAsNonRoot:
                 _container("c2", sc={"runAsUser": 1000}),
             ],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "c2" in result.message
         assert "runAsNonRoot" in result.message
@@ -756,7 +756,7 @@ class TestRunAsNonRoot:
             containers=[_container(sc={"runAsUser": 1000})],
             init_containers=[_container("init", sc={"runAsUser": 1000, "runAsNonRoot": False})],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "init" in result.message
 
@@ -766,7 +766,7 @@ class TestRunAsNonRoot:
             containers=[_container(sc={"runAsUser": 1000, "runAsNonRoot": True})],
             ephemeral_containers=[_container("debug", sc={"runAsUser": 1000})],
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "debug" in result.message
 
@@ -777,7 +777,7 @@ class TestRunAsNonRoot:
             containers=[_container(sc={"runAsUser": 1000})],
             ephemeral_containers=[_container("debug", sc={"runAsUser": 1000})],
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     # ------------------------------------------------------------------ #
     # No securityContext at all on container
@@ -785,7 +785,7 @@ class TestRunAsNonRoot:
 
     def test_no_container_sc_no_pod_default_rejected(self):
         spec = _pod(containers=[_container(sc=None)])
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "runAsNonRoot" in result.message
 
@@ -812,24 +812,24 @@ class TestHardcodedVolumeTypes:
         )
 
     def test_no_volumes_ok(self):
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])).allowed is True
 
     def test_each_allowed_non_nfs_type_ok(self):
         for vol_type in _ALLOWED_VOLUME_TYPES:
             if vol_type == "nfs":
                 continue  # tested separately; needs allowedNfsVolumes annotation too
             spec = self._spec({"name": "v", vol_type: {}})
-            result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+            result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
             assert result.allowed is True, f"Expected {vol_type!r} to be allowed; got: {result.message}"
 
     def test_nfs_type_ok_when_annotation_permits(self):
         anns = {**_ALWAYS_ANNOTATIONS, "tritonai-admission-webhook/policy.allowedNfsVolumes": "nfsserver:/path"}
         spec = self._spec({"name": "v", "nfs": {"server": "nfsserver", "path": "/path"}})
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
     def test_disallowed_type_rejected(self):
         spec = self._spec({"name": "v", "hostPath": {"path": "/host"}})
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "hostPath" in result.message
 
@@ -838,7 +838,7 @@ class TestHardcodedVolumeTypes:
             {"name": "cfg", "configMap": {"name": "my-cm"}},
             {"name": "tmp", "emptyDir": {}},
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is True
 
     def test_one_disallowed_among_many_rejected(self):
         spec = self._spec(
@@ -846,14 +846,14 @@ class TestHardcodedVolumeTypes:
             {"name": "bad", "hostPath": {"path": "/etc"}},
             {"name": "tmp", "emptyDir": {}},
         )
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "bad" in result.message
         assert "hostPath" in result.message
 
     def test_error_names_disallowed_type(self):
         spec = self._spec({"name": "mysecret", "hostIPC": {}})
-        result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+        result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
         assert result.allowed is False
         assert "hostIPC" in result.message
         assert "mysecret" in result.message
@@ -900,7 +900,7 @@ class TestProhibitedVolumeTypes:
             if vol_type == "nfs":
                 continue  # nfs also requires allowedNfsVolumes
             spec = self._spec({"name": "v", vol_type: {}})
-            result = validate_pod(_ALWAYS_ANNOTATIONS, spec)
+            result = validate_pod([_ALWAYS_ANNOTATIONS], spec)
             assert result.allowed is True, f"Expected {vol_type!r} allowed without annotation; got: {result.message}"
 
     # ------------------------------------------------------------------ #
@@ -909,18 +909,18 @@ class TestProhibitedVolumeTypes:
 
     def test_prohibited_type_rejected(self):
         spec = self._spec({"name": "tmp", "emptyDir": {}})
-        result = validate_pod(self._anns("emptyDir"), spec)
+        result = validate_pod([self._anns("emptyDir")], spec)
         assert result.allowed is False
         assert "tmp" in result.message
         assert "emptyDir" in result.message
 
     def test_prohibited_type_absent_from_pod_ok(self):
         spec = self._spec({"name": "cfg", "configMap": {"name": "cm"}})
-        assert validate_pod(self._anns("emptyDir"), spec).allowed is True
+        assert validate_pod([self._anns("emptyDir")], spec).allowed is True
 
     def test_prohibit_secret(self):
         spec = self._spec({"name": "s", "secret": {"secretName": "x"}})
-        result = validate_pod(self._anns("secret"), spec)
+        result = validate_pod([self._anns("secret")], spec)
         assert result.allowed is False
         assert "secret" in result.message
 
@@ -933,7 +933,7 @@ class TestProhibitedVolumeTypes:
             {"name": "tmp", "emptyDir": {}},
             {"name": "s", "secret": {"secretName": "x"}},
         )
-        result = validate_pod(self._anns("emptyDir,secret"), spec)
+        result = validate_pod([self._anns("emptyDir,secret")], spec)
         assert result.allowed is False
         assert "tmp" in result.message
         assert "s" in result.message
@@ -944,7 +944,7 @@ class TestProhibitedVolumeTypes:
             {"name": "cfg", "configMap": {}},
             {"name": "tmp", "emptyDir": {}},
         )
-        result = validate_pod(self._anns("emptyDir,secret"), spec)
+        result = validate_pod([self._anns("emptyDir,secret")], spec)
         assert result.allowed is False
         assert "tmp" in result.message
         assert "cfg" not in result.message
@@ -955,11 +955,11 @@ class TestProhibitedVolumeTypes:
 
     def test_empty_annotation_no_restriction(self):
         spec = self._spec({"name": "tmp", "emptyDir": {}})
-        assert validate_pod(self._anns(""), spec).allowed is True
+        assert validate_pod([self._anns("")], spec).allowed is True
 
     def test_whitespace_annotation_no_restriction(self):
         spec = self._spec({"name": "tmp", "emptyDir": {}})
-        assert validate_pod(self._anns("   "), spec).allowed is True
+        assert validate_pod([self._anns("   ")], spec).allowed is True
 
     # ------------------------------------------------------------------ #
     # Unknown type names in annotation (not in base set)
@@ -968,13 +968,13 @@ class TestProhibitedVolumeTypes:
     def test_unknown_type_name_ignored(self):
         # "notARealType" not in base set; emptyDir still prohibited
         spec = self._spec({"name": "tmp", "emptyDir": {}})
-        result = validate_pod(self._anns("notARealType,emptyDir"), spec)
+        result = validate_pod([self._anns("notARealType,emptyDir")], spec)
         assert result.allowed is False
         assert "emptyDir" in result.message
 
     def test_only_unknown_type_no_restriction(self):
         spec = self._spec({"name": "tmp", "emptyDir": {}})
-        assert validate_pod(self._anns("notARealType"), spec).allowed is True
+        assert validate_pod([self._anns("notARealType")], spec).allowed is True
 
     # ------------------------------------------------------------------ #
     # No volumes — always passes
@@ -982,7 +982,7 @@ class TestProhibitedVolumeTypes:
 
     def test_no_volumes_always_ok(self):
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(self._anns("emptyDir,secret"), spec).allowed is True
+        assert validate_pod([self._anns("emptyDir,secret")], spec).allowed is True
 
     # ------------------------------------------------------------------ #
     # Types outside the base set remain rejected regardless
@@ -990,7 +990,7 @@ class TestProhibitedVolumeTypes:
 
     def test_base_disallowed_type_always_rejected(self):
         spec = self._spec({"name": "bad", "hostPath": {"path": "/host"}})
-        assert validate_pod(_ALWAYS_ANNOTATIONS, spec).allowed is False
+        assert validate_pod([_ALWAYS_ANNOTATIONS], spec).allowed is False
 
     # ------------------------------------------------------------------ #
     # configMap prohibition — env / envFrom
@@ -1001,7 +1001,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "X", "valueFrom": {"configMapKeyRef": {"name": "cm", "key": "k"}}}],
         )
-        result = validate_pod(self._anns("configMap"), _pod(containers=[c]))
+        result = validate_pod([self._anns("configMap")], _pod(containers=[c]))
         assert result.allowed is False
         assert "configMapKeyRef" in result.message
         assert "X" in result.message
@@ -1011,7 +1011,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env_from=[{"configMapRef": {"name": "my-cm"}}],
         )
-        result = validate_pod(self._anns("configMap"), _pod(containers=[c]))
+        result = validate_pod([self._anns("configMap")], _pod(containers=[c]))
         assert result.allowed is False
         assert "configMapRef" in result.message
         assert "my-cm" in result.message
@@ -1021,7 +1021,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "X", "valueFrom": {"configMapKeyRef": {"name": "cm", "key": "k"}}}],
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     # ------------------------------------------------------------------ #
     # secret prohibition — env / envFrom
@@ -1032,7 +1032,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "PWD", "valueFrom": {"secretKeyRef": {"name": "my-sec", "key": "pw"}}}],
         )
-        result = validate_pod(self._anns("secret"), _pod(containers=[c]))
+        result = validate_pod([self._anns("secret")], _pod(containers=[c]))
         assert result.allowed is False
         assert "secretKeyRef" in result.message
         assert "PWD" in result.message
@@ -1042,7 +1042,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env_from=[{"secretRef": {"name": "my-sec"}}],
         )
-        result = validate_pod(self._anns("secret"), _pod(containers=[c]))
+        result = validate_pod([self._anns("secret")], _pod(containers=[c]))
         assert result.allowed is False
         assert "secretRef" in result.message
         assert "my-sec" in result.message
@@ -1052,7 +1052,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "PWD", "valueFrom": {"secretKeyRef": {"name": "s", "key": "p"}}}],
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     # ------------------------------------------------------------------ #
     # downwardAPI prohibition — env
@@ -1063,7 +1063,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "NS", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}}],
         )
-        result = validate_pod(self._anns("downwardAPI"), _pod(containers=[c]))
+        result = validate_pod([self._anns("downwardAPI")], _pod(containers=[c]))
         assert result.allowed is False
         assert "fieldRef" in result.message
         assert "NS" in result.message
@@ -1073,7 +1073,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "CPU", "valueFrom": {"resourceFieldRef": {"resource": "limits.cpu"}}}],
         )
-        result = validate_pod(self._anns("downwardAPI"), _pod(containers=[c]))
+        result = validate_pod([self._anns("downwardAPI")], _pod(containers=[c]))
         assert result.allowed is False
         assert "resourceFieldRef" in result.message
         assert "CPU" in result.message
@@ -1083,7 +1083,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "NS", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}}],
         )
-        assert validate_pod(_ALWAYS_ANNOTATIONS, _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([_ALWAYS_ANNOTATIONS], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     # ------------------------------------------------------------------ #
     # Prohibiting one type does not block another type's env sources
@@ -1094,14 +1094,14 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "X", "valueFrom": {"configMapKeyRef": {"name": "cm", "key": "k"}}}],
         )
-        assert validate_pod(self._anns("secret"), _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([self._anns("secret")], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     def test_configmap_prohibition_does_not_block_secret_env(self):
         c = _container(
             sc={"runAsUser": 1000},
             env=[{"name": "P", "valueFrom": {"secretKeyRef": {"name": "s", "key": "k"}}}],
         )
-        assert validate_pod(self._anns("configMap"), _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
+        assert validate_pod([self._anns("configMap")], _pod(pod_sc={"runAsNonRoot": True}, containers=[c])).allowed is True
 
     # ------------------------------------------------------------------ #
     # Env checks apply to initContainers and ephemeralContainers too
@@ -1114,7 +1114,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env=[{"name": "X", "valueFrom": {"configMapKeyRef": {"name": "cm", "key": "k"}}}],
         )
-        result = validate_pod(self._anns("configMap"), _pod(containers=[main], init_containers=[init]))
+        result = validate_pod([self._anns("configMap")], _pod(containers=[main], init_containers=[init]))
         assert result.allowed is False
         assert "init" in result.message
 
@@ -1125,7 +1125,7 @@ class TestProhibitedVolumeTypes:
             sc={"runAsUser": 1000},
             env_from=[{"secretRef": {"name": "s"}}],
         )
-        result = validate_pod(self._anns("secret"), _pod(containers=[main], ephemeral_containers=[eph]))
+        result = validate_pod([self._anns("secret")], _pod(containers=[main], ephemeral_containers=[eph]))
         assert result.allowed is False
         assert "debug" in result.message
 
@@ -1138,34 +1138,34 @@ class TestAllowedNfsVolumes:
 
     def test_no_nfs_volumes_annotation_absent_ok(self):
         spec = _nfs_spec()
-        assert validate_pod(_NFS_ANNOTATIONS_BASE, spec).allowed is True
+        assert validate_pod([_NFS_ANNOTATIONS_BASE], spec).allowed is True
 
     def test_no_nfs_volumes_annotation_empty_ok(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": ""}
-        assert validate_pod(anns, _nfs_spec()).allowed is True
+        assert validate_pod([anns], _nfs_spec()).allowed is True
 
     def test_no_nfs_volumes_annotation_with_patterns_ok(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "10.20.5.3:/export/data"}
-        assert validate_pod(anns, _nfs_spec()).allowed is True
+        assert validate_pod([anns], _nfs_spec()).allowed is True
 
     # ------------------------------------------------------------------ #
     # NFS volume present — annotation absent/empty → denied
     # ------------------------------------------------------------------ #
 
     def test_nfs_volume_annotation_absent_rejected(self):
-        result = validate_pod(_NFS_ANNOTATIONS_BASE, _nfs_spec(_NFS_VOL))
+        result = validate_pod([_NFS_ANNOTATIONS_BASE], _nfs_spec(_NFS_VOL))
         assert result.allowed is False
         assert "nfs-vol" in result.message
         assert "allowedNfsVolumes" in result.message
 
     def test_nfs_volume_annotation_empty_string_rejected(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": ""}
-        result = validate_pod(anns, _nfs_spec(_NFS_VOL))
+        result = validate_pod([anns], _nfs_spec(_NFS_VOL))
         assert result.allowed is False
 
     def test_nfs_volume_annotation_whitespace_only_rejected(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "   "}
-        result = validate_pod(anns, _nfs_spec(_NFS_VOL))
+        result = validate_pod([anns], _nfs_spec(_NFS_VOL))
         assert result.allowed is False
 
     # ------------------------------------------------------------------ #
@@ -1174,21 +1174,21 @@ class TestAllowedNfsVolumes:
 
     def test_exact_match_allowed(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "10.20.5.3:/export/data"}
-        assert validate_pod(anns, _nfs_spec(_NFS_VOL)).allowed is True
+        assert validate_pod([anns], _nfs_spec(_NFS_VOL)).allowed is True
 
     def test_exact_match_server_mismatch_rejected(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "10.20.5.4:/export/data"}
-        result = validate_pod(anns, _nfs_spec(_NFS_VOL))
+        result = validate_pod([anns], _nfs_spec(_NFS_VOL))
         assert result.allowed is False
 
     def test_exact_match_path_mismatch_rejected(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "10.20.5.3:/export/other"}
-        result = validate_pod(anns, _nfs_spec(_NFS_VOL))
+        result = validate_pod([anns], _nfs_spec(_NFS_VOL))
         assert result.allowed is False
 
     def test_multiple_exact_patterns_or_semantics(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "itsnfs:/scratch,10.20.5.3:/export/data"}
-        assert validate_pod(anns, _nfs_spec(_NFS_VOL)).allowed is True
+        assert validate_pod([anns], _nfs_spec(_NFS_VOL)).allowed is True
 
     # ------------------------------------------------------------------ #
     # Glob matches
@@ -1197,18 +1197,18 @@ class TestAllowedNfsVolumes:
     def test_glob_server_wildcard_allowed(self):
         vol = {"name": "v", "nfs": {"server": "its-dsmlp-fs03", "path": "/export/workspaces/PROJ_TEST"}}
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "its-dsmlp-fs0[1-9]:/export/workspaces/*"}
-        assert validate_pod(anns, _nfs_spec(vol)).allowed is True
+        assert validate_pod([anns], _nfs_spec(vol)).allowed is True
 
     def test_glob_path_wildcard_allowed(self):
         vol = {"name": "v", "nfs": {"server": "itsnfs", "path": "/scratch/proj"}}
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "itsnfs:/scratch/*"}
-        assert validate_pod(anns, _nfs_spec(vol)).allowed is True
+        assert validate_pod([anns], _nfs_spec(vol)).allowed is True
 
     def test_glob_outside_range_rejected(self):
         # its-dsmlp-fs0[1-9] does not match its-dsmlp-fs10
         vol = {"name": "v", "nfs": {"server": "its-dsmlp-fs10", "path": "/export/workspaces/PROJ"}}
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "its-dsmlp-fs0[1-9]:/export/workspaces/*"}
-        result = validate_pod(anns, _nfs_spec(vol))
+        result = validate_pod([anns], _nfs_spec(vol))
         assert result.allowed is False
 
     def test_glob_full_example_from_spec(self):
@@ -1222,7 +1222,7 @@ class TestAllowedNfsVolumes:
             ),
         }
         vol = {"name": "v", "nfs": {"server": "its-dsmlp-fs03", "path": "/export/workspaces/PROJ_TEST"}}
-        assert validate_pod(anns, _nfs_spec(vol)).allowed is True
+        assert validate_pod([anns], _nfs_spec(vol)).allowed is True
 
     # ------------------------------------------------------------------ #
     # Multiple NFS volumes
@@ -1232,13 +1232,13 @@ class TestAllowedNfsVolumes:
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "nfs1:/data,nfs2:/data"}
         vol1 = {"name": "v1", "nfs": {"server": "nfs1", "path": "/data"}}
         vol2 = {"name": "v2", "nfs": {"server": "nfs2", "path": "/data"}}
-        assert validate_pod(anns, _nfs_spec(vol1, vol2)).allowed is True
+        assert validate_pod([anns], _nfs_spec(vol1, vol2)).allowed is True
 
     def test_multiple_nfs_one_disallowed_rejected(self):
         anns = {**_NFS_ANNOTATIONS_BASE, "tritonai-admission-webhook/policy.allowedNfsVolumes": "nfs1:/data"}
         vol1 = {"name": "v1", "nfs": {"server": "nfs1", "path": "/data"}}
         vol2 = {"name": "v2", "nfs": {"server": "nfs2", "path": "/data"}}
-        result = validate_pod(anns, _nfs_spec(vol1, vol2))
+        result = validate_pod([anns], _nfs_spec(vol1, vol2))
         assert result.allowed is False
         assert "v2" in result.message
 
@@ -1256,7 +1256,7 @@ class TestAllowedNfsVolumes:
                 _NFS_VOL,
             ],
         )
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
 
 # ---------------------------------------------------------------------------
@@ -1281,11 +1281,11 @@ class TestValidateTolerations:
     # annotation absent → no restriction
     def test_no_annotation_permits_any_toleration(self):
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
-        result = validate_pod(_TOL_ANNOTATIONS_BASE, _tol_spec(tol))
+        result = validate_pod([_TOL_ANNOTATIONS_BASE], _tol_spec(tol))
         assert result.allowed is True
 
     def test_no_annotation_permits_no_tolerations(self):
-        result = validate_pod(_TOL_ANNOTATIONS_BASE, _pod(pod_sc={"runAsNonRoot": True},
+        result = validate_pod([_TOL_ANNOTATIONS_BASE], _pod(pod_sc={"runAsNonRoot": True},
                                                           containers=[_container(sc={"runAsUser": 1000})]))
         assert result.allowed is True
 
@@ -1293,13 +1293,13 @@ class TestValidateTolerations:
     def test_exact_equal_toleration_allowed(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol)).allowed is True
 
     def test_exact_exists_toleration_rejected_by_non_wildcard_value(self):
         """Exists toleration does not match a non-'*' value pattern."""
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         tol = {"key": "node-type", "operator": "Exists", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
         assert "toleration" in result.message.lower()
 
@@ -1307,41 +1307,41 @@ class TestValidateTolerations:
     def test_wildcard_value_permits_equal_toleration(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=*:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai-dev", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol)).allowed is True
 
     def test_wildcard_value_permits_exists_toleration(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=*:NoSchedule"}
         tol = {"key": "node-type", "operator": "Exists", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol)).allowed is True
 
     # fnmatch glob in value (non-"*" pattern)
     def test_glob_value_pattern_matches(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai*:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai-dev", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol)).allowed is True
 
     def test_glob_value_pattern_no_match(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai*:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "glean-node", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
 
     # fnmatch glob in key
     def test_glob_key_pattern_matches(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-*=its-ai:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol)).allowed is True
 
     # fnmatch glob in effect
     def test_glob_effect_pattern_matches(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:No*"}
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol)).allowed is True
 
     def test_effect_mismatch_rejected(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoExecute"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
 
     # multiple permitted entries (OR semantics)
@@ -1349,13 +1349,13 @@ class TestValidateTolerations:
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule,glean-node=*:NoExecute"}
         tol1 = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
         tol2 = {"key": "glean-node", "operator": "Exists", "effect": "NoExecute"}
-        assert validate_pod(anns, _tol_spec(tol1, tol2)).allowed is True
+        assert validate_pod([anns], _tol_spec(tol1, tol2)).allowed is True
 
     def test_one_of_two_tolerations_rejected(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         tol1 = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
         tol2 = {"key": "other", "operator": "Equal", "value": "x", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol1, tol2))
+        result = validate_pod([anns], _tol_spec(tol1, tol2))
         assert result.allowed is False
         assert "other" in result.message
 
@@ -1364,18 +1364,18 @@ class TestValidateTolerations:
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
         spec["tolerations"] = []
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
     def test_absent_tolerations_always_ok(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         spec = _pod(pod_sc={"runAsNonRoot": True}, containers=[_container(sc={"runAsUser": 1000})])
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
     # malformed annotation
     def test_malformed_annotation_rejects_pod(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "no-colon-here"}
         tol = {"key": "x", "operator": "Equal", "value": "y", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
         assert "malformed" in result.message.lower()
 
@@ -1383,14 +1383,14 @@ class TestValidateTolerations:
     def test_node_kubernetes_toleration_always_permitted_without_annotation(self):
         """node.kubernetes.io/* tolerations pass even when no tolerations annotation exists."""
         tol = {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoExecute"}
-        result = validate_pod(_TOL_ANNOTATIONS_BASE, _tol_spec(tol))
+        result = validate_pod([_TOL_ANNOTATIONS_BASE], _tol_spec(tol))
         assert result.allowed is True
 
     def test_node_kubernetes_toleration_always_permitted_with_annotation(self):
         """node.kubernetes.io/* tolerations pass even when the annotation doesn't cover them."""
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         tol = {"key": "node.kubernetes.io/unreachable", "operator": "Exists", "effect": "NoExecute"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is True
 
     def test_node_kubernetes_toleration_exempt_while_custom_is_still_checked(self):
@@ -1398,7 +1398,7 @@ class TestValidateTolerations:
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         sys_tol = {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoExecute"}
         bad_tol = {"key": "other", "operator": "Equal", "value": "x", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(sys_tol, bad_tol))
+        result = validate_pod([anns], _tol_spec(sys_tol, bad_tol))
         assert result.allowed is False
         assert "other" in result.message
 
@@ -1407,7 +1407,7 @@ class TestValidateTolerations:
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "node-type=its-ai:NoSchedule"}
         sys_tol = {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoExecute"}
         ok_tol = {"key": "node-type", "operator": "Equal", "value": "its-ai", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(sys_tol, ok_tol))
+        result = validate_pod([anns], _tol_spec(sys_tol, ok_tol))
         assert result.allowed is True
 
 
@@ -1428,7 +1428,7 @@ class TestNegationIntegration:
             pod_sc={"runAsNonRoot": True, "runAsUser": 1000},
             containers=[_container(sc={"allowPrivilegeEscalation": False})],
         )
-        result = validate_pod(anns, spec)
+        result = validate_pod([anns], spec)
         assert result.allowed is False
         assert "runAsUser" in result.message
 
@@ -1439,7 +1439,7 @@ class TestNegationIntegration:
             pod_sc={"runAsNonRoot": True, "runAsUser": 2000},
             containers=[_container(sc={"allowPrivilegeEscalation": False})],
         )
-        result = validate_pod(anns, spec)
+        result = validate_pod([anns], spec)
         assert result.allowed is True
 
     def test_required_scalar_mixed_positive_and_negated(self):
@@ -1450,15 +1450,15 @@ class TestNegationIntegration:
 
         # 1000 → allowed (positive match, not negated)
         spec = _pod(pod_sc={**base_sc, "runAsUser": 1000}, containers=containers)
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
         # 3000 → denied (negated)
         spec = _pod(pod_sc={**base_sc, "runAsUser": 3000}, containers=containers)
-        assert validate_pod(anns, spec).allowed is False
+        assert validate_pod([anns], spec).allowed is False
 
         # 999 → denied (no positive match)
         spec = _pod(pod_sc={**base_sc, "runAsUser": 999}, containers=containers)
-        assert validate_pod(anns, spec).allowed is False
+        assert validate_pod([anns], spec).allowed is False
 
     def test_optional_list_negated_blocks_entry(self):
         """supplementalGroups=!5000 → a group list containing 5000 is denied."""
@@ -1470,7 +1470,7 @@ class TestNegationIntegration:
             pod_sc={"runAsNonRoot": True, "runAsUser": 1000, "supplementalGroups": [5000]},
             containers=[_container(sc={"allowPrivilegeEscalation": False})],
         )
-        result = validate_pod(anns, spec)
+        result = validate_pod([anns], spec)
         assert result.allowed is False
         assert "supplementalGroups" in result.message
 
@@ -1484,7 +1484,7 @@ class TestNegationIntegration:
             pod_sc={"runAsNonRoot": True, "runAsUser": 1000, "supplementalGroups": [6000, 7000]},
             containers=[_container(sc={"allowPrivilegeEscalation": False})],
         )
-        result = validate_pod(anns, spec)
+        result = validate_pod([anns], spec)
         assert result.allowed is True
 
     def test_node_label_negated_blocks_label(self):
@@ -1498,7 +1498,7 @@ class TestNegationIntegration:
             containers=[_container(sc={"allowPrivilegeEscalation": False})],
         )
         spec["nodeSelector"] = {"partition": "gpu"}
-        result = validate_pod(anns, spec)
+        result = validate_pod([anns], spec)
         assert result.allowed is False
         assert "nodeLabel" in result.message.lower() or "nodeSelector" in result.message
 
@@ -1513,7 +1513,7 @@ class TestNegationIntegration:
             containers=[_container(sc={"allowPrivilegeEscalation": False})],
         )
         spec["nodeSelector"] = {"partition": "cpu"}
-        result = validate_pod(anns, spec)
+        result = validate_pod([anns], spec)
         assert result.allowed is True
 
 
@@ -1539,53 +1539,53 @@ class TestNfsNegation:
 
     def test_negated_pattern_blocks_matching_volume(self):
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "!10.0.0.1:/data"}
-        result = validate_pod(anns, _nfs_neg_spec(_NFS_VOL_A))
+        result = validate_pod([anns], _nfs_neg_spec(_NFS_VOL_A))
         assert result.allowed is False
         assert "nfs-a" in result.message
         assert "negated" in result.message.lower()
 
     def test_negated_pattern_allows_non_matching_volume(self):
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "!10.0.0.1:/data"}
-        result = validate_pod(anns, _nfs_neg_spec(_NFS_VOL_B))
+        result = validate_pod([anns], _nfs_neg_spec(_NFS_VOL_B))
         assert result.allowed is True
 
     def test_negated_glob_blocks_matching_volume(self):
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "!10.0.0.1:*"}
-        result = validate_pod(anns, _nfs_neg_spec(_NFS_VOL_A))
+        result = validate_pod([anns], _nfs_neg_spec(_NFS_VOL_A))
         assert result.allowed is False
 
     def test_negated_glob_allows_non_matching(self):
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "!10.0.0.1:*"}
-        result = validate_pod(anns, _nfs_neg_spec(_NFS_VOL_B))
+        result = validate_pod([anns], _nfs_neg_spec(_NFS_VOL_B))
         assert result.allowed is True
 
     def test_mixed_positive_and_negated(self):
         """Positive pattern allows 10.0.0.2:/scratch, negated blocks 10.0.0.1:/data."""
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "10.0.0.2:/scratch,!10.0.0.1:/data"}
         # VOL_B matches positive, not blocked by negation
-        assert validate_pod(anns, _nfs_neg_spec(_NFS_VOL_B)).allowed is True
+        assert validate_pod([anns], _nfs_neg_spec(_NFS_VOL_B)).allowed is True
         # VOL_A blocked by negation
-        assert validate_pod(anns, _nfs_neg_spec(_NFS_VOL_A)).allowed is False
+        assert validate_pod([anns], _nfs_neg_spec(_NFS_VOL_A)).allowed is False
 
     def test_mixed_positive_and_negated_no_positive_match(self):
         """Volume not matching positive set and not blocked by negation → rejected."""
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "10.0.0.9:/other,!10.0.0.1:/data"}
-        result = validate_pod(anns, _nfs_neg_spec(_NFS_VOL_B))
+        result = validate_pod([anns], _nfs_neg_spec(_NFS_VOL_B))
         assert result.allowed is False
         assert "does not match" in result.message
 
     def test_multiple_negated_patterns(self):
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "!10.0.0.1:/data,!10.0.0.2:/scratch"}
-        assert validate_pod(anns, _nfs_neg_spec(_NFS_VOL_A)).allowed is False
-        assert validate_pod(anns, _nfs_neg_spec(_NFS_VOL_B)).allowed is False
+        assert validate_pod([anns], _nfs_neg_spec(_NFS_VOL_A)).allowed is False
+        assert validate_pod([anns], _nfs_neg_spec(_NFS_VOL_B)).allowed is False
         # A volume matching neither negation is allowed
         vol_c = {"name": "nfs-c", "nfs": {"server": "10.0.0.3", "path": "/safe"}}
-        assert validate_pod(anns, _nfs_neg_spec(vol_c)).allowed is True
+        assert validate_pod([anns], _nfs_neg_spec(vol_c)).allowed is True
 
     def test_multiple_volumes_one_blocked_by_negation(self):
         """Two volumes; one matches negation → pod denied."""
         anns = {**_ALWAYS_ANNOTATIONS, _NFS_KEY: "10.0.0.*:*,!10.0.0.1:/data"}
-        result = validate_pod(anns, _nfs_neg_spec(_NFS_VOL_A, _NFS_VOL_B))
+        result = validate_pod([anns], _nfs_neg_spec(_NFS_VOL_A, _NFS_VOL_B))
         assert result.allowed is False
         assert "nfs-a" in result.message
 
@@ -1596,7 +1596,7 @@ class TestNfsNegation:
             pod_sc={"runAsNonRoot": True},
             containers=[_container(sc={"runAsUser": 1000})],
         )
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
 
 # ---------------------------------------------------------------------------
@@ -1610,14 +1610,14 @@ class TestTolerationNegation:
     def test_negated_toleration_blocks_matching(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "!node-type=gpu:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "gpu", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
         assert "negated" in result.message.lower()
 
     def test_negated_toleration_allows_non_matching(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "!node-type=gpu:NoSchedule"}
         tol = {"key": "node-type", "operator": "Equal", "value": "cpu", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is True
 
     def test_mixed_positive_and_negated_toleration(self):
@@ -1628,27 +1628,27 @@ class TestTolerationNegation:
         }
         cpu_tol = {"key": "node-type", "operator": "Equal", "value": "cpu", "effect": "NoSchedule"}
         gpu_tol = {"key": "node-type", "operator": "Equal", "value": "gpu", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(cpu_tol)).allowed is True
-        assert validate_pod(anns, _tol_spec(gpu_tol)).allowed is False
+        assert validate_pod([anns], _tol_spec(cpu_tol)).allowed is True
+        assert validate_pod([anns], _tol_spec(gpu_tol)).allowed is False
 
     def test_negated_with_wildcard_value_blocks_exists_operator(self):
         """!key=*:effect blocks Exists-operator tolerations too."""
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "!node-type=*:NoSchedule"}
         tol = {"key": "node-type", "operator": "Exists", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
 
     def test_negated_with_glob_key(self):
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "!gpu-*=*:*"}
         tol = {"key": "gpu-partition", "operator": "Equal", "value": "a100", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(tol))
+        result = validate_pod([anns], _tol_spec(tol))
         assert result.allowed is False
 
     def test_negated_does_not_block_node_kubernetes_tolerations(self):
         """node.kubernetes.io/* tolerations are always exempt, even from negation."""
         anns = {**_TOL_ANNOTATIONS_BASE, _TOL_KEY: "!node.kubernetes.io/*=*:*"}
         sys_tol = {"key": "node.kubernetes.io/not-ready", "operator": "Exists", "effect": "NoExecute"}
-        result = validate_pod(anns, _tol_spec(sys_tol))
+        result = validate_pod([anns], _tol_spec(sys_tol))
         assert result.allowed is True
 
     def test_multiple_negated_entries(self):
@@ -1659,9 +1659,9 @@ class TestTolerationNegation:
         gpu = {"key": "node-type", "operator": "Equal", "value": "gpu", "effect": "NoSchedule"}
         tpu = {"key": "node-type", "operator": "Equal", "value": "tpu", "effect": "NoSchedule"}
         cpu = {"key": "node-type", "operator": "Equal", "value": "cpu", "effect": "NoSchedule"}
-        assert validate_pod(anns, _tol_spec(gpu)).allowed is False
-        assert validate_pod(anns, _tol_spec(tpu)).allowed is False
-        assert validate_pod(anns, _tol_spec(cpu)).allowed is True
+        assert validate_pod([anns], _tol_spec(gpu)).allowed is False
+        assert validate_pod([anns], _tol_spec(tpu)).allowed is False
+        assert validate_pod([anns], _tol_spec(cpu)).allowed is True
 
     def test_no_tolerations_with_negation_ok(self):
         """No tolerations on pod → always ok, even with negated patterns."""
@@ -1670,7 +1670,7 @@ class TestTolerationNegation:
             pod_sc={"runAsNonRoot": True},
             containers=[_container(sc={"runAsUser": 1000})],
         )
-        assert validate_pod(anns, spec).allowed is True
+        assert validate_pod([anns], spec).allowed is True
 
     def test_positive_no_match_negation_no_match_still_rejected(self):
         """Toleration not matching positive set and not blocked by negation → rejected."""
@@ -1679,6 +1679,151 @@ class TestTolerationNegation:
             _TOL_KEY: "node-type=cpu:NoSchedule,!node-type=gpu:NoSchedule",
         }
         other = {"key": "zone", "operator": "Equal", "value": "us-east", "effect": "NoSchedule"}
-        result = validate_pod(anns, _tol_spec(other))
+        result = validate_pod([anns], _tol_spec(other))
         assert result.allowed is False
         assert "not permitted" in result.message.lower()
+
+
+# ---------------------------------------------------------------------------
+# AND semantics across multiple policy layers
+# ---------------------------------------------------------------------------
+
+_RUN_AS_USER_KEY = "tritonai-admission-webhook/policy.runAsUser"
+_NODE_LABEL_KEY = "tritonai-admission-webhook/policy.nodeLabel"
+_NFS_KEY = "tritonai-admission-webhook/policy.allowedNfsVolumes"
+_TOL_KEY_AND = "tritonai-admission-webhook/policy.tolerations"
+_PROHIBITED_KEY = "tritonai-admission-webhook/policy.prohibitedVolumeTypes"
+
+
+class TestAndSemanticsAcrossLayers:
+    """All policy layers must be satisfied; each annotation retains OR semantics internally."""
+
+    # ------------------------------------------------------------------ #
+    # ConstraintSet-based fields (runAsUser)
+    # ------------------------------------------------------------------ #
+
+    def test_two_layers_non_overlapping_runasuser_rejected(self):
+        """Layer 1: runAsUser=1000, layer 2: runAsUser=2000 → no single value satisfies both."""
+        layer1 = {_RUN_AS_USER_KEY: "1000"}
+        layer2 = {_RUN_AS_USER_KEY: "2000"}
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
+        result = validate_pod([layer1, layer2], spec)
+        assert result.allowed is False
+        assert "runAsUser" in result.message
+
+    def test_two_layers_overlapping_runasuser_accepted(self):
+        """Layer 1: runAsUser=1000-2000, layer 2: runAsUser=1500-3000 → 1500-2000 satisfies both."""
+        layer1 = {_RUN_AS_USER_KEY: "1000-2000"}
+        layer2 = {_RUN_AS_USER_KEY: "1500-3000"}
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1800})
+        assert validate_pod([layer1, layer2], spec).allowed is True
+
+    def test_two_layers_value_only_in_one_range_rejected(self):
+        """Value satisfies layer 1 but not layer 2 → rejected."""
+        layer1 = {_RUN_AS_USER_KEY: "1000-2000"}
+        layer2 = {_RUN_AS_USER_KEY: "1500-3000"}
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1200})
+        result = validate_pod([layer1, layer2], spec)
+        assert result.allowed is False
+        assert "runAsUser" in result.message
+
+    def test_single_layer_list_behaves_as_before(self):
+        """One-layer list preserves existing single-source semantics."""
+        layer = {_RUN_AS_USER_KEY: "1000"}
+        spec = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
+        assert validate_pod([layer], spec).allowed is True
+
+    def test_namespace_layer_cannot_loosen_configmap_layer(self):
+        """ConfigMap restricts to 1000; namespace tries to allow 2000 → 2000 still rejected."""
+        cm_layer = {_RUN_AS_USER_KEY: "1000"}
+        ns_layer = {_RUN_AS_USER_KEY: "2000"}
+        spec_2000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 2000})
+        spec_1000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
+        assert validate_pod([cm_layer, ns_layer], spec_2000).allowed is False
+        assert validate_pod([cm_layer, ns_layer], spec_1000).allowed is False  # 1000 fails ns_layer
+
+    def test_three_layers_all_must_match(self):
+        """Three layers; only their intersection (2000) passes all three."""
+        l1 = {_RUN_AS_USER_KEY: "1000,2000"}
+        l2 = {_RUN_AS_USER_KEY: "2000,3000"}
+        l3 = {_RUN_AS_USER_KEY: "1000,2000,3000"}
+        spec_2000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 2000})
+        spec_1000 = _pod(pod_sc={"runAsNonRoot": True, "runAsUser": 1000})
+        assert validate_pod([l1, l2, l3], spec_2000).allowed is True
+        assert validate_pod([l1, l2, l3], spec_1000).allowed is False  # fails l2
+
+    # ------------------------------------------------------------------ #
+    # NFS volumes
+    # ------------------------------------------------------------------ #
+
+    def _nfs_pod(self, server: str, path: str = "/data") -> dict:
+        return _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"runAsUser": 1000})],
+            volumes=[{"name": "nfs-vol", "nfs": {"server": server, "path": path}}],
+        )
+
+    def test_nfs_allowed_by_all_layers_accepted(self):
+        """Volume allowed by both layers → accepted."""
+        l1 = {_RUN_AS_USER_KEY: "1000", _NFS_KEY: "nfs1.example.com:/data"}
+        l2 = {_RUN_AS_USER_KEY: "1000", _NFS_KEY: "*.example.com:/data"}
+        assert validate_pod([l1, l2], self._nfs_pod("nfs1.example.com")).allowed is True
+
+    def test_nfs_denied_by_one_layer_rejected(self):
+        """Volume allowed by layer 1 but not layer 2 → rejected."""
+        l1 = {_RUN_AS_USER_KEY: "1000", _NFS_KEY: "nfs1.example.com:/data"}
+        l2 = {_RUN_AS_USER_KEY: "1000", _NFS_KEY: "nfs2.example.com:/data"}
+        result = validate_pod([l1, l2], self._nfs_pod("nfs1.example.com"))
+        assert result.allowed is False
+
+    # ------------------------------------------------------------------ #
+    # Tolerations
+    # ------------------------------------------------------------------ #
+
+    def _tol_pod(self, key: str, value: str, effect: str) -> dict:
+        tol = {"key": key, "operator": "Equal", "value": value, "effect": effect}
+        return _tol_spec(tol)
+
+    def test_toleration_permitted_by_all_layers_accepted(self):
+        """Toleration covered by every layer → accepted."""
+        l1 = {_RUN_AS_USER_KEY: "1000", _TOL_KEY_AND: "gpu=true:NoSchedule"}
+        l2 = {_RUN_AS_USER_KEY: "1000", _TOL_KEY_AND: "*=*:*"}
+        assert validate_pod([l1, l2], self._tol_pod("gpu", "true", "NoSchedule")).allowed is True
+
+    def test_toleration_denied_by_second_layer_rejected(self):
+        """Toleration allowed by layer 1 but blocked (negated) in layer 2 → rejected."""
+        l1 = {_RUN_AS_USER_KEY: "1000", _TOL_KEY_AND: "*=*:*"}
+        l2 = {_RUN_AS_USER_KEY: "1000", _TOL_KEY_AND: "!gpu=true:NoSchedule"}
+        result = validate_pod([l1, l2], self._tol_pod("gpu", "true", "NoSchedule"))
+        assert result.allowed is False
+
+    def test_layer_without_toleration_annotation_no_restriction(self):
+        """A layer with no toleration annotation imposes no restriction for that layer."""
+        l1 = {_RUN_AS_USER_KEY: "1000"}  # no toleration key
+        l2 = {_RUN_AS_USER_KEY: "1000", _TOL_KEY_AND: "gpu=true:NoSchedule"}
+        assert validate_pod([l1, l2], self._tol_pod("gpu", "true", "NoSchedule")).allowed is True
+
+    # ------------------------------------------------------------------ #
+    # prohibitedVolumeTypes
+    # ------------------------------------------------------------------ #
+
+    def _secret_vol_pod(self) -> dict:
+        return _pod(
+            pod_sc={"runAsNonRoot": True},
+            containers=[_container(sc={"runAsUser": 1000})],
+            volumes=[{"name": "s", "secret": {"secretName": "my-secret"}}],
+        )
+
+    def test_prohibited_type_in_any_layer_rejected(self):
+        """Layer 2 prohibits 'secret'; the volume type is therefore rejected."""
+        l1 = {_RUN_AS_USER_KEY: "1000"}                  # no prohibition
+        l2 = {_RUN_AS_USER_KEY: "1000", _PROHIBITED_KEY: "secret"}
+        result = validate_pod([l1, l2], self._secret_vol_pod())
+        assert result.allowed is False
+        assert "secret" in result.message
+
+    def test_no_layer_prohibits_type_accepted(self):
+        """Neither layer prohibits 'secret'; pod with a secret volume is accepted."""
+        l1 = {_RUN_AS_USER_KEY: "1000"}
+        l2 = {_RUN_AS_USER_KEY: "1000", _PROHIBITED_KEY: "emptyDir"}
+        assert validate_pod([l1, l2], self._secret_vol_pod()).allowed is True
