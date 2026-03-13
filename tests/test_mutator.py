@@ -722,7 +722,7 @@ def test_mutate_endpoint_passes_through_non_pod():
 
 def test_mutate_endpoint_returns_patch_when_needed():
     with patch(
-        "app.main.get_namespace_security_annotations", return_value=NS_WITH_DEFAULTS
+        "app.main.get_namespace_security_annotations", return_value=[NS_WITH_DEFAULTS]
     ):
         # Container has no securityContext → runAsUser is absent → default injected
         spec = {"containers": [{"name": "app"}]}
@@ -738,7 +738,7 @@ def test_mutate_endpoint_returns_patch_when_needed():
 
 def test_mutate_endpoint_no_patch_when_already_compliant():
     with patch(
-        "app.main.get_namespace_security_annotations", return_value=NS_WITH_DEFAULTS
+        "app.main.get_namespace_security_annotations", return_value=[NS_WITH_DEFAULTS]
     ):
         spec = {
             "securityContext": {"runAsNonRoot": True},

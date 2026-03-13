@@ -196,7 +196,7 @@ class TestRewritePatchPaths:
 class TestValidateWorkloads:
     @pytest.mark.parametrize("kind", ["Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job"])
     def test_valid_workload_allowed(self, kind):
-        with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+        with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
             body = _workload_review(kind, pod_spec=_VALID_POD_SPEC)
             resp = client.post("/validate", json=body)
         assert resp.status_code == 200
@@ -204,7 +204,7 @@ class TestValidateWorkloads:
 
     @pytest.mark.parametrize("kind", ["Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job"])
     def test_invalid_workload_denied(self, kind):
-        with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+        with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
             body = _workload_review(kind, pod_spec=_BAD_POD_SPEC)
             resp = client.post("/validate", json=body)
         assert resp.status_code == 200
@@ -213,14 +213,14 @@ class TestValidateWorkloads:
         assert "runAsUser" in data["response"]["status"]["message"]
 
     def test_valid_cronjob_allowed(self):
-        with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+        with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
             body = _cronjob_review(pod_spec=_VALID_POD_SPEC)
             resp = client.post("/validate", json=body)
         assert resp.status_code == 200
         assert resp.json()["response"]["allowed"] is True
 
     def test_invalid_cronjob_denied(self):
-        with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+        with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
             body = _cronjob_review(pod_spec=_BAD_POD_SPEC)
             resp = client.post("/validate", json=body)
         assert resp.status_code == 200
@@ -253,7 +253,7 @@ class TestValidateWorkloads:
             "securityContext": {"runAsNonRoot": True},
             "containers": [{"name": "app", "securityContext": {"allowPrivilegeEscalation": False}}],
         }
-        with patch("app.main.get_namespace_security_annotations", return_value=annotations):
+        with patch("app.main.get_namespace_security_annotations", return_value=[annotations]):
             body = _workload_review("Deployment", pod_spec=pod_spec)
             resp = client.post("/validate", json=body)
         assert resp.status_code == 200
@@ -291,7 +291,7 @@ class TestValidateWorkloads:
         assert resp.json()["response"]["allowed"] is True
 
     def test_response_uid_echoed(self):
-        with patch("app.main.get_namespace_security_annotations", return_value=NS_ANNOTATIONS):
+        with patch("app.main.get_namespace_security_annotations", return_value=[NS_ANNOTATIONS]):
             body = _deployment_review(uid="special-uid", pod_spec=_VALID_POD_SPEC)
             resp = client.post("/validate", json=body)
         assert resp.json()["response"]["uid"] == "special-uid"
@@ -313,7 +313,7 @@ class TestMutateWorkloads:
             "tritonai-admission-webhook/default.runAsUser": "1000",
         }
         pod_spec = {"containers": [{"name": "app"}]}
-        with patch("app.main.get_namespace_security_annotations", return_value=annotations):
+        with patch("app.main.get_namespace_security_annotations", return_value=[annotations]):
             body = _workload_review(kind, pod_spec=pod_spec)
             resp = client.post("/mutate", json=body)
         assert resp.status_code == 200
@@ -327,7 +327,7 @@ class TestMutateWorkloads:
             "tritonai-admission-webhook/default.runAsUser": "1000",
         }
         pod_spec = {"containers": [{"name": "app"}]}
-        with patch("app.main.get_namespace_security_annotations", return_value=annotations):
+        with patch("app.main.get_namespace_security_annotations", return_value=[annotations]):
             body = _cronjob_review(pod_spec=pod_spec)
             resp = client.post("/mutate", json=body)
         assert resp.status_code == 200

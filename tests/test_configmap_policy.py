@@ -178,12 +178,12 @@ class TestResolveConfigmapPolicy:
     def test_returns_none_when_index_empty(self):
         with patch.object(nc, "_get_index", return_value={}):
             result = nc._resolve_configmap_policy({"team": "gpu"})
-        assert result is None
+        assert result == []
 
     def test_returns_none_when_no_label_matches(self):
         with patch.object(nc, "_get_index", return_value={"team.research": "research-policy"}):
             result = nc._resolve_configmap_policy({"team": "gpu"})
-        assert result is None
+        assert result == []
 
     def test_single_match_returns_policy_cm_data(self):
         policy_data = {"tritonai-admission-webhook/policy.runAsUser": "1000"}
@@ -192,10 +192,10 @@ class TestResolveConfigmapPolicy:
             patch.object(nc, "_get_policy_cm", return_value=policy_data),
         ):
             result = nc._resolve_configmap_policy({"team": "gpu", "env": "prod"})
-        assert result == policy_data
+        assert result == [policy_data]
 
     def test_multiple_matches_merged_in_lexical_order(self):
-        """Later label.value (lexically) should win on key conflicts."""
+        """Layers are returned in lexical order of their label.value key."""
         index = {
             "team.research": "research-policy",
             "tier.gpu": "gpu-policy",
@@ -205,7 +205,7 @@ class TestResolveConfigmapPolicy:
             "tritonai-admission-webhook/policy.runAsGroup": "1000",
         }
         gpu_data = {
-            "tritonai-admission-webhook/policy.runAsUser": "2000",  # overrides research
+            "tritonai-admission-webhook/policy.runAsUser": "2000",
             "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
         }
 
@@ -216,18 +216,16 @@ class TestResolveConfigmapPolicy:
             patch.object(nc, "_get_index", return_value=index),
             patch.object(nc, "_get_policy_cm", side_effect=_get_policy),
         ):
-            # "team.research" < "tier.gpu" lexically, so gpu_data applied last and wins.
+            # "team.research" < "tier.gpu" lexically → research_data first, gpu_data second.
             result = nc._resolve_configmap_policy({"team": "research", "tier": "gpu"})
 
-        assert result["tritonai-admission-webhook/policy.runAsUser"] == "2000"
-        assert result["tritonai-admission-webhook/policy.runAsGroup"] == "1000"
-        assert result["tritonai-admission-webhook/policy.nodeSelectors"] == "partition=gpu"
+        assert result == [research_data, gpu_data]
 
     def test_lexical_order_is_on_label_value_string_not_cm_name(self):
-        """Merge order is determined by the label.value key, not the ConfigMap name."""
+        """Layer order is determined by the label.value key, not the ConfigMap name."""
         index = {
-            "zzz.last": "first-policy",   # lexically last label → applied last → wins
-            "aaa.first": "second-policy",  # lexically first label → applied first → overridden
+            "zzz.last": "first-policy",   # lexically last label → second layer
+            "aaa.first": "second-policy",  # lexically first label → first layer
         }
         first_policy_data = {"tritonai-admission-webhook/policy.runAsUser": "999"}
         second_policy_data = {"tritonai-admission-webhook/policy.runAsUser": "1"}
@@ -244,7 +242,8 @@ class TestResolveConfigmapPolicy:
         ):
             result = nc._resolve_configmap_policy({"aaa": "first", "zzz": "last"})
 
-        assert result["tritonai-admission-webhook/policy.runAsUser"] == "999"
+        # "aaa.first" < "zzz.last" lexically → second-policy comes first, first-policy comes second
+        assert result == [second_policy_data, first_policy_data]
 
     def test_returns_none_when_all_matching_cms_empty(self):
         with (
@@ -252,8 +251,8 @@ class TestResolveConfigmapPolicy:
             patch.object(nc, "_get_policy_cm", return_value={}),
         ):
             result = nc._resolve_configmap_policy({"team": "gpu"})
-        # Empty dict returned from all matching CMs → still not None (match was found).
-        assert result == {}
+        # Empty dict returned from matching CM → one empty layer (match was found).
+        assert result == [{}]
 
 
 # ---------------------------------------------------------------------------
@@ -272,10 +271,11 @@ class TestGetNamespaceSecurityAnnotations:
         api.read_namespace.return_value = ns
         with (
             patch.object(nc, "_get_core_v1_api", return_value=api),
-            patch.object(nc, "_resolve_configmap_policy", return_value=policy_data),
+            patch.object(nc, "_resolve_configmap_policy", return_value=[policy_data]),
         ):
             result = nc._fetch_namespace_security_annotations("my-ns")
-        assert result == policy_data
+        # CM layer first, then empty namespace-own layer
+        assert result == [policy_data, {}]
 
     def test_falls_back_to_ns_annotations_when_no_index_match(self):
         ns_annotations = {
@@ -287,18 +287,18 @@ class TestGetNamespaceSecurityAnnotations:
         api.read_namespace.return_value = ns
         with (
             patch.object(nc, "_get_core_v1_api", return_value=api),
-            patch.object(nc, "_resolve_configmap_policy", return_value=None),
+            patch.object(nc, "_resolve_configmap_policy", return_value=[]),
         ):
             result = nc._fetch_namespace_security_annotations("my-ns")
-        assert result == {"tritonai-admission-webhook/policy.runAsUser": "500"}
-        assert "unrelated-annotation" not in result
+        assert result == [{"tritonai-admission-webhook/policy.runAsUser": "500"}]
+        assert "unrelated-annotation" not in result[0]
 
     def test_returns_empty_on_namespace_fetch_error(self):
         api = MagicMock()
         api.read_namespace.side_effect = _api_500()
         with patch.object(nc, "_get_core_v1_api", return_value=api):
             result = nc._fetch_namespace_security_annotations("bad-ns")
-        assert result == {}
+        assert result == [{}]
 
     def test_labels_passed_to_resolve(self):
         ns = _make_ns(labels={"env": "prod", "team": "research"})
@@ -306,19 +306,19 @@ class TestGetNamespaceSecurityAnnotations:
         api.read_namespace.return_value = ns
         with (
             patch.object(nc, "_get_core_v1_api", return_value=api),
-            patch.object(nc, "_resolve_configmap_policy", return_value=None) as mock_resolve,
+            patch.object(nc, "_resolve_configmap_policy", return_value=[]) as mock_resolve,
         ):
             nc._fetch_namespace_security_annotations("my-ns")
         mock_resolve.assert_called_once_with({"env": "prod", "team": "research"})
 
     def test_ns_annotations_override_configmap_on_conflict(self):
-        """Namespace annotations with the right prefix override ConfigMap values."""
+        """Namespace annotations appear as a separate later layer after ConfigMap layers."""
         cm_policy = {
             "tritonai-admission-webhook/policy.runAsUser": "1000",
             "tritonai-admission-webhook/policy.runAsGroup": "2000",
         }
         ns_annotations = {
-            "tritonai-admission-webhook/policy.runAsUser": "9999",  # overrides CM
+            "tritonai-admission-webhook/policy.runAsUser": "9999",
             "unrelated/annotation": "ignored",
         }
         ns = _make_ns(labels={"team": "gpu"}, annotations=ns_annotations)
@@ -326,15 +326,16 @@ class TestGetNamespaceSecurityAnnotations:
         api.read_namespace.return_value = ns
         with (
             patch.object(nc, "_get_core_v1_api", return_value=api),
-            patch.object(nc, "_resolve_configmap_policy", return_value=cm_policy),
+            patch.object(nc, "_resolve_configmap_policy", return_value=[cm_policy]),
         ):
             result = nc._fetch_namespace_security_annotations("my-ns")
-        assert result["tritonai-admission-webhook/policy.runAsUser"] == "9999"
-        assert result["tritonai-admission-webhook/policy.runAsGroup"] == "2000"
-        assert "unrelated/annotation" not in result
+        # CM layer first, namespace-own layer second
+        assert result[0] == cm_policy
+        assert result[1]["tritonai-admission-webhook/policy.runAsUser"] == "9999"
+        assert "unrelated/annotation" not in result[1]
 
     def test_ns_annotations_extend_configmap(self):
-        """Namespace annotations not present in the ConfigMap are added to the result."""
+        """Namespace annotations appear as a separate layer after ConfigMap layers."""
         cm_policy = {"tritonai-admission-webhook/policy.runAsUser": "1000"}
         ns_annotations = {"tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu"}
         ns = _make_ns(labels={"team": "gpu"}, annotations=ns_annotations)
@@ -342,13 +343,13 @@ class TestGetNamespaceSecurityAnnotations:
         api.read_namespace.return_value = ns
         with (
             patch.object(nc, "_get_core_v1_api", return_value=api),
-            patch.object(nc, "_resolve_configmap_policy", return_value=cm_policy),
+            patch.object(nc, "_resolve_configmap_policy", return_value=[cm_policy]),
         ):
             result = nc._fetch_namespace_security_annotations("my-ns")
-        assert result == {
-            "tritonai-admission-webhook/policy.runAsUser": "1000",
-            "tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu",
-        }
+        assert result == [
+            {"tritonai-admission-webhook/policy.runAsUser": "1000"},
+            {"tritonai-admission-webhook/policy.nodeSelectors": "partition=gpu"},
+        ]
 
     def test_non_prefixed_ns_annotations_excluded_in_configmap_path(self):
         """Annotations without ANNOTATION_NS prefix are excluded even on the CM path."""
@@ -362,10 +363,11 @@ class TestGetNamespaceSecurityAnnotations:
         api.read_namespace.return_value = ns
         with (
             patch.object(nc, "_get_core_v1_api", return_value=api),
-            patch.object(nc, "_resolve_configmap_policy", return_value=cm_policy),
+            patch.object(nc, "_resolve_configmap_policy", return_value=[cm_policy]),
         ):
             result = nc._fetch_namespace_security_annotations("my-ns")
-        assert result == {"tritonai-admission-webhook/policy.runAsUser": "1000"}
+        # CM layer, then empty ns-own layer (non-prefixed annotations filtered out)
+        assert result == [{"tritonai-admission-webhook/policy.runAsUser": "1000"}, {}]
 
 
 # ---------------------------------------------------------------------------
