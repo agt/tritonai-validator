@@ -40,9 +40,10 @@ TOLERATION_ALLOWLIST semantics
 
 Hardcoded constraints (always enforced, not annotation-driven)
 ──────────────────────────────────────────────────────────────
-securityContext.runAsNonRoot must be true; follows REQUIRED_SCALAR semantics:
-  pod-level True covers all containers; if absent at pod level every container
-  (including initContainers and ephemeralContainers) must individually set it to True.
+securityContext.runAsNonRoot must be true; enforced via _validate_required_scalar
+  with a fixed BooleanConstraint(True) — pod-level True covers all containers;
+  if absent at pod level every container (including initContainers and
+  ephemeralContainers) must individually set it to True.
 """
 from __future__ import annotations
 
@@ -54,6 +55,7 @@ from typing import Any, Callable
 
 from .config import ANNOTATION_NS, POLICY_PREFIX
 from .constraints.base import ConstraintSet
+from .constraints.boolean import BooleanConstraint
 from .constraints.registry import CONSTRAINT_REGISTRY, parse_annotation
 from .pod_helpers import (
     _all_containers,
@@ -123,6 +125,11 @@ _FIELD_SPECS: dict[str, FieldSpec] = {
         display_name="nodeLabel",
         behavior=FieldBehavior.NODE_SELECTOR,
         extract=lambda sc: None,  # handler reads pod_spec directly
+    ),
+    "runAsNonRoot": FieldSpec(
+        display_name="runAsNonRoot",
+        behavior=FieldBehavior.REQUIRED_SCALAR,
+        extract=lambda sc: sc.get("runAsNonRoot"),
     ),
 }
 
@@ -363,51 +370,6 @@ def _validate_hardcoded_constraints(pod_spec: dict[str, Any]) -> list[str]:
                     f"Container {cname!r} port {port.get('containerPort', '?')!r} "
                     f"must not set hostPort; found hostPort={host_port!r}"
                 )
-
-    return errors
-
-
-# ---------------------------------------------------------------------------
-# runAsNonRoot hardcoded constraint (REQUIRED_SCALAR, value must be True)
-# ---------------------------------------------------------------------------
-
-
-def _validate_run_as_non_root(pod_spec: dict[str, Any]) -> list[str]:
-    """Enforce securityContext.runAsNonRoot=true on every pod.
-
-    Follows REQUIRED_SCALAR semantics:
-      - If the pod-level securityContext sets runAsNonRoot, it must be True.
-      - Any container that explicitly sets runAsNonRoot must set it to True.
-      - If the pod-level securityContext does not set runAsNonRoot, every
-        container (containers, initContainers, ephemeralContainers) must
-        individually set runAsNonRoot=True.
-    """
-    errors: list[str] = []
-    pod_sc = _pod_sc(pod_spec)
-    pod_value = pod_sc.get("runAsNonRoot")
-    pod_has_value = pod_value is not None
-
-    if pod_has_value and pod_value is not True:
-        errors.append(
-            f"Pod securityContext.runAsNonRoot must be true; found {pod_value!r}"
-        )
-
-    for container in _all_containers(pod_spec):
-        cname = _container_name(container)
-        csc = _container_sc(container)
-        c_value = csc.get("runAsNonRoot")
-
-        if c_value is not None:
-            if c_value is not True:
-                errors.append(
-                    f"Container {cname!r} securityContext.runAsNonRoot must be true; "
-                    f"found {c_value!r}"
-                )
-        elif not pod_has_value:
-            errors.append(
-                f"Container {cname!r} must set securityContext.runAsNonRoot=true "
-                f"(no pod-level default)"
-            )
 
     return errors
 
@@ -784,7 +746,10 @@ def validate_pod(
 
     # Apply hardcoded constraints (always enforced)
     all_errors.extend(_validate_hardcoded_constraints(pod_spec))
-    all_errors.extend(_validate_run_as_non_root(pod_spec))
+    _runasnonroot_cs = ConstraintSet([BooleanConstraint(True)])
+    all_errors.extend(
+        _validate_required_scalar("runAsNonRoot", _FIELD_SPECS["runAsNonRoot"], pod_spec, _runasnonroot_cs)
+    )
 
     # Apply volume type constraint (hardcoded base set, optionally narrowed by annotation)
     all_errors.extend(_validate_volume_types(pod_spec, namespace_annotations))
